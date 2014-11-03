@@ -24,7 +24,6 @@ def get_function_starts(static):
 
   current_address = entry
   while (current_address < end):
-    #mem = static.memory(current_address,0x10) #get an instruction
     d = static[current_address]['instruction']
     if d.itype == disasm.ITYPE.call:
       #we want the immediate (the function), not the next instruction
@@ -38,7 +37,5 @@ def get_function_starts(static):
     #we can also get this information from the disasm
     #TODO: add thumb support to disasm, it seems the class refactor broke it
     current_address += 0x10
-
-  #print "found function starts",function_starts
 
   return function_starts
