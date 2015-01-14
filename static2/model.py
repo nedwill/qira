@@ -1,5 +1,6 @@
 from capstone import *
 import capstone # for some unexported (yet) symbols in Capstone 3.0
+import traceback
 
 try:
      import bap
@@ -24,11 +25,55 @@ def exists(cont,f):
     except StopIteration:
         return False
 
+#unit test this
+#-x = ~x + 1
+#we could use ctypes here, but then we'd need an import
+def calc_offset(offset, arch):
+  if arch in ['aarch64', 'x86-64']:
+    if (offset >> 63) & 1 == 1:
+      #negative
+      offset_fixed = -(0xFFFFFFFFFFFFFFFF-offset+1)
+    else:
+      offset_fixed = offset
+  else:
+    #this is bad; we seem to get 64bit offsets sometimes from bap
+    #use an assert here to catch errors instead
+    offset = offset & 0xFFFFFFFF
+    if (offset >> 31) & 1 == 1:
+      offset_fixed = -(0xFFFFFFFF-offset+1)
+    else:
+      offset_fixed = offset
+  return offset_fixed
+
+def test_calc_offset():
+  expected = {(0xFFFFFFFF, "x86"): -1,
+              (0xFFFFFFFE, "x86"): -2,
+              (0xFFFFFFFF, "x86-64"): 0xFFFFFFFF,
+              (0xFFFFFFFF, "aarch64"): 0xFFFFFFFF,
+              (0xFFFFFFFFFFFFFFFF, "x86-64"): -1,
+              (0xFFFFFFFFFFFFFFFE, "x86-64"): -2}
+  for k,v in expected.iteritems():
+    v_prime = calc_offset(*k)
+    if v_prime != v:
+      k_fmt = (k[0],hex(k[1]),k[2])
+      print "{0} -> {1:x} expected, got {0} -> {2:x}".format(k_fmt,v,v_prime)
+      #return False
+  #return True
+
+#test_calc_offset()
+#assert(test_calc_offset())
+
 class BapInsn(object):
     def __init__(self, raw, address, arch):
+        #need this to fixup offsets, might be able to get this somewhere else
+        self.arch = arch
         addr_size = 32
         if arch in ['aarch64', 'x86-64']:
             addr_size = 64
+
+        if raw == "":
+          traceback.print_stack()
+          raise ValueError("Empty raw string.")
 
         insns = list(bap.disasm(raw,
                            address=bil.Int(long(address), addr_size),
@@ -39,10 +84,10 @@ class BapInsn(object):
         if len(insns) == 0:
             raise ValueError("Invalid instruction:\n{0}".
                              format(raw.encode('hex')))
-        elif len(insns) > 1:
-            raise ValueError("Code fragment {0} contains {1} insns:\n{2}".
-                             format(raw.encode('hex'), len(insns),
-                                    "\n".join(i.asm for i in insns)))
+        #elif len(insns) > 1:
+        #    raise ValueError("Code fragment {0} contains {1} insns:\n{2}".
+        #                     format(raw.encode('hex'), len(insns),
+        #                            "\n".join(i.asm for i in insns)))
 
         self.insn = insns[0]
 
@@ -102,16 +147,22 @@ class BapInsn(object):
             if self.insn.bil is None:
                 dst = self.insn.operands[0]
                 if isinstance(dst, asm.Imm):
-                    dests.append((dst.val, self.dtype))
+                    print "calling calc_offset with",int(dst.val),self.arch
+                    dests.append((int(self.insn.addr)+calc_offset(int(dst.val),self.arch),
+                                            self.dtype))
             else:
                 try:
                     jmp = (s for s in self.insn.bil
                            if isinstance(s, bil.Jmp)).next()
                     if isinstance(jmp.val, bil.Int):
-                        dests.append((jmp.val.val[0], self.dtype))
+                        print "calling calc_offset with",int(jmp.val.val[0]),self.arch
+                        dests.append((int(self.insn.addr)+calc_offset(int(jmp.val.val[0]),
+                                      self.arch),
+                                      self.dtype))
                 except StopIteration:
                     # in ARM we're failing with special(svc) here
                     pass
+            print "Just added dest 0x{:x}!".format(dests[-1][0])
         return dests
 
 
@@ -223,6 +274,7 @@ class CsInsn(object):
 
 def Instruction(raw, address, arch='i386'):
     try:
+        #raise Exception("swag")
         return BapInsn(raw, address, arch)
     except Exception as exn:
         print "bap failed", type(exn).__name__, exn
@@ -287,7 +339,15 @@ class Tags:
       # should reading the instruction tag trigger disasm?
       # and should dests be a seperate tag?
       if tag == "instruction":
+        #if self.address < 0x8040000 or self.address > 0x804FFFF:
+        #if self.address < 0x08000 or self.address > 0x1FFFF:
+        #  print "Got bad address 0x{:x}, traceback follows:".format(self.address)
+        #  print traceback.print_stack()
         dat = self.static.memory(self.address, 0x10)
+        #if dat == "":
+        #  print self.address
+        #  print "dat is empty"
+        #  return None
         # arch should probably come from the address with fallthrough
         self.backing['instruction'] = Instruction(dat, self.address, self.static['arch'])
         self.backing['len'] = self.backing['instruction'].size()
