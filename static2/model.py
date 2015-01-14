@@ -3,10 +3,11 @@ import capstone # for some unexported (yet) symbols in Capstone 3.0
 import traceback
 
 try:
-     import bap
-     from bap import arm, asm, bil
+  import bap
+  from bap import adt, arm, asm, bil
+  from adt import Visitor, visit
 except ImportError:
-    pass
+  pass
 
 __all__ = ["Tags", "Function", "Block", "Instruction", "DESTTYPE","ABITYPE"]
 
@@ -19,11 +20,47 @@ class DESTTYPE(object):
 
 
 def exists(cont,f):
-    try:
-        r = (x for x in cont if f(x)).next()
-        return True
-    except StopIteration:
-        return False
+  try:
+    r = (x for x in cont if f(x)).next()
+    return True
+  except StopIteration:
+    return False
+
+class Jmp_visitor(Visitor):
+  def __init__(self):
+    self.in_condition = False
+    self.jumps = []
+
+  def visit_If(self, exp):
+    was = self.in_condition
+    self.in_condition = True
+    self.run(exp.true)
+    self.run(exp.false)
+    self.in_condition = was
+
+  def visit_Jmp(self, exp):
+    self.jumps.append((exp,
+                       DESTTYPE.cjump if self.in_condition else
+                       DESTTYPE.jump))
+
+class Access_visitor(Visitor):
+  def __init__(self):
+      self.reads = []
+      self.writes = []
+
+  def visit_Move(self, stmt):
+      self.writes.append(stmt.var.name)
+      self.run(stmt.expr)
+
+  def visit_Var(self, var):
+      self.reads.append(var.name)
+
+def jumps(bil):
+  return visit(Jmp_visitor(), bil).jumps
+
+def accesses(bil):
+  r = visit(Access_visitor(), bil)
+  return (r.reads, r.writes)
 
 #unit test this
 #-x = ~x + 1
@@ -64,106 +101,85 @@ def test_calc_offset():
 #assert(test_calc_offset())
 
 class BapInsn(object):
-    def __init__(self, raw, address, arch):
-        #need this to fixup offsets, might be able to get this somewhere else
-        self.arch = arch
-        addr_size = 32
-        if arch in ['aarch64', 'x86-64']:
-            addr_size = 64
+  def __init__(self, raw, address, arch):
+    arch = 'armv7' if arch == 'arm' else arch
+    insns = list(bap.disasm(raw,
+                            addr=address,
+                            arch=arch,
+                            server='http://127.0.0.1:8080',
+                            stop_conditions=[asm.Valid()]))
+    if len(insns) == 0:
+      raise ValueError("Invalid instruction:\n{0}".
+                       format(raw.encode('hex')))
+    elif len(insns) > 1:
+      raise ValueError("Code fragment {0} contains {1} insns:\n{2}".
+                       format(raw.encode('hex'), len(insns),
+                              "\n".join(i.asm for i in insns)))
+    self.insn = insns[0]
 
-        if raw == "":
-          traceback.print_stack()
-          raise ValueError("Empty raw string.")
+    self.regs_read, self.regs_write = accesses(self.insn.bil)
+    self.jumps = jumps(self.insn.bil)
 
-        insns = list(bap.disasm(raw,
-                           address=bil.Int(long(address), addr_size),
-                           arch=arch,
-                           server='http://127.0.0.1:8080',
-                           stop_conditions=[asm.Valid()]))
+    self.dtype = None
+    if self.is_call():
+      self.dtype = DESTTYPE.call
+    elif self.is_conditional():
+      self.dtype = DESTTYPE.cjump
+    elif self.is_jump():
+      self.dtype = DESTTYPE.jump
 
-        if len(insns) == 0:
-            raise ValueError("Invalid instruction:\n{0}".
-                             format(raw.encode('hex')))
-        #elif len(insns) > 1:
-        #    raise ValueError("Code fragment {0} contains {1} insns:\n{2}".
-        #                     format(raw.encode('hex'), len(insns),
-        #                            "\n".join(i.asm for i in insns)))
+    dests = []
 
-        self.insn = insns[0]
+    if self.code_follows():
+      dests.append((self.insn.addr + self.insn.size,
+                    DESTTYPE.implicit))
+    if self.insn.bil is not None:
+      for (jmp,dtype) in self.jumps:
+        if isinstance(jmp.arg, bil.Int):
+            dests.append((jmp.arg.value, dtype))
 
-        self.regs_read = None
-        self.regs_write = None
+    elif self.is_jump() or self.is_call():
+      dst = self.insn.operands[0]
+      if isinstance(dst, asm.Imm):
+        dests.append((dst.arg, self.dtype))
 
-        self.dtype = None
-        if self.is_call():
-            self.dtype = DESTTYPE.call
-        elif self.is_conditional():
-            self.dtype = DESTTYPE.cjump
-        elif self.is_jump():
-            self.dtype = DESTTYPE.jump
+    if self.is_ret():
+      self._dests = []
+    else:
+      self._dests = dests
 
-    def __str__(self):
-        return self.insn.asm
+  def __str__(self):
+    return self.insn.asm
 
-    # all jumps, including conditional
-    def is_jump(self):
-        if self.insn.bil is None:
-            return self.insn.has_kind(asm.Branch)
-        else:
-            return exists(self.insn.bil,
-                          lambda x: isinstance(x, bil.Jmp))
+  def is_jump(self):
+    if self.insn.bil is None:
+      return self.insn.has_kind(asm.Branch)
+    else:
+      return len(self.jumps) != 0
 
-    def is_ret(self):
-        return self.insn.has_kind(asm.Return)
+  def is_ret(self):
+    return self.insn.has_kind(asm.Return)
 
-    def is_call(self):
-        return self.insn.has_kind(asm.Call)
+  def is_call(self):
+    return self.insn.has_kind(asm.Call)
 
-    def is_ending(self):
-        return self.insn.has_kind(asm.Terminator)
+  def is_ending(self):
+    return self.insn.has_kind(asm.Terminator)
 
-    def is_conditional(self):
-        return self.insn.has_kind(asm.Conditional_branch)
+  def is_conditional(self):
+    return self.insn.has_kind(asm.Conditional_branch)
 
-    def is_unconditional(self):
-        return self.insn.has_kind(asm.Unconditional_branch)
+  def is_unconditional(self):
+    return self.insn.has_kind(asm.Unconditional_branch)
 
-    def code_follows(self):
-        return not (self.is_ret() or self.is_unconditional())
+  def code_follows(self):
+    return not (self.is_ret() or self.is_unconditional())
 
-    def size(self):
-        return self.insn.size
+  def size(self):
+    return self.insn.size
 
-    def dests(self):
-        if self.is_ret():
-            return []
-
-        dests = []
-
-        if self.code_follows():
-            dests.append((self.insn.addr + self.insn.size,
-                          DESTTYPE.implicit))
-        if self.is_jump() or self.is_call():
-            if self.insn.bil is None:
-                dst = self.insn.operands[0]
-                if isinstance(dst, asm.Imm):
-                    print "calling calc_offset with",int(dst.val),self.arch
-                    dests.append((int(self.insn.addr)+calc_offset(int(dst.val),self.arch),
-                                            self.dtype))
-            else:
-                try:
-                    jmp = (s for s in self.insn.bil
-                           if isinstance(s, bil.Jmp)).next()
-                    if isinstance(jmp.val, bil.Int):
-                        print "calling calc_offset with",int(jmp.val.val[0]),self.arch
-                        dests.append((int(self.insn.addr)+calc_offset(int(jmp.val.val[0]),
-                                      self.arch),
-                                      self.dtype))
-                except StopIteration:
-                    # in ARM we're failing with special(svc) here
-                    pass
-            print "Just added dest 0x{:x}!".format(dests[-1][0])
-        return dests
+  def dests(self):
+    return self._dests
 
 
 # Instruction class
@@ -272,13 +288,14 @@ class CsInsn(object):
 
     return dl
 
-def Instruction(raw, address, arch='i386'):
+class Instruction(object):
+  def __new__(cls, *args, **kwargs):
     try:
-        #raise Exception("swag")
-        return BapInsn(raw, address, arch)
+      #raise Exception("swag")
+      return BapInsn(raw, address, arch)
     except Exception as exn:
-        print "bap failed", type(exn).__name__, exn
-        return CsInsn(raw, address, arch)
+      print "bap failed", type(exn).__name__, exn
+      return CsInsn(*args, **kwargs)
 
 class ABITYPE(object):
   UNKNOWN       = ([],None)
