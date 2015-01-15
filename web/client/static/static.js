@@ -16,11 +16,19 @@ Deps.autorun(function() { DA("update static view");
 
 // TODO: this code is replicated in idump.js
 function instruction_html_from_tags(ins) {
-  var idump = '<div class="instruction">';
-  idump += '<span class="insaddr datainstruction addr addr_'+ins.address+'">'+ins.address+'</span> ';
   if (ins.instruction !== undefined) {
-    idump += '<div class="instructiondesc">'+highlight_instruction(ins.instruction)+'</div> ';
+    var idump = '';
+    var inses = ins.instruction.split("\n");
+    for (var i=0; i < inses.length; i++)
+    {
+      idump += '<div class="instruction">';
+      idump += '<span class="insaddr datainstruction addr addr_'+ins.address+'">'+ins.address+'</span> ';
+      idump += '<div class="instructiondesc">'+inses[i]+'</div> ';
+    }
+    //idump += '<div class="instructiondesc">'+highlight_instruction(ins.instruction)+'</div> ';
   } else {
+    var idump = '<div class="instruction">';
+    idump += '<span class="insaddr datainstruction addr addr_'+ins.address+'">'+ins.address+'</span> ';
     if (ins.type == "string") {
       idump += '<div class="stringdesc">';
       idump += "'";
