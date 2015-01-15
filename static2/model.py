@@ -314,8 +314,7 @@ class CsInsn(object):
 class Instruction(object):
   def __new__(cls, *args, **kwargs):
     try:
-      #raise Exception("swag")
-      return BapInsn(raw, address, arch)
+      return BapInsn(*args, **kwargs)
     except Exception as exn:
       print "bap failed", type(exn).__name__, exn
       return CsInsn(*args, **kwargs)
