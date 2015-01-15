@@ -115,6 +115,10 @@ def test_calc_offset():
 class BapInsn(object):
   def __init__(self, raw, address, arch):
     arch = 'armv7' if arch == 'arm' else arch
+
+    if raw == "":
+      raise ValueError("Empty string passed to BapInsn")
+
     insns = list(bap.disasm(raw,
                             addr=address,
                             arch=arch,
