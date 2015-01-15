@@ -54,45 +54,13 @@ class Access_visitor(Visitor):
   def visit_Var(self, var):
       self.reads.append(var.name)
 
-def is_register(s):
-  #from bap_disasm_arm_env.ml
-  return s in ["R0","R1","R2","R3","R4","R5","R6","R7",
-               "R8","R9","R10","R11","R12","LR","PC","SP"]
-
-def is_prog_status_register(s):
-  return s in ["SPSR","CPSR"] or s[:7] == "ITSTATE"
-
-def is_arithflag(s):
-  return s in ["NF","ZF","CF","VF","QF","GE0","GE1","GE2","GE3"]
-
-from pprint import pprint #for pprint vars
 class Conceval_visitor(Visitor):
   def __init__(self):
     self.info = []
 
-  #def visit_Load(self, stmt):
-  #    print "found Load(mem,idx,endian,size)"
-  #    pprint (vars(stmt))
-
-  #def visit_Store(self, stmt):
-  #    print "Store(mem,idx,val,endian,size)"
-  #    pprint (vars(stmt))
-
   def visit_Move(self, stmt):
-    #print "found Move"
-    #pprint (vars(stmt))
-    #print "here is its expr"
-    #pprint (vars(stmt.expr))
-    #print "arg[1]: {}".format(stmt.var.arg[1])
-    #self.writes.append(stmt.var.name)
-    if is_register(stmt.var.name):
-      self.info.append(str(stmt.arg))
-    #if not is_register(stmt.var.name):
-    #  print stmt.var.name
+    self.info.append(stmt.arg)
     self.run(stmt.expr)
-
-  #def visit_Var(self, var):
-  #    self.reads.append(var.name)
 
 def jumps(bil):
   return visit(Jmp_visitor(), bil).jumps
@@ -125,6 +93,7 @@ class BapInsn(object):
     self.regs_read, self.regs_write = accesses(self.insn.bil)
     self.jumps = jumps(self.insn.bil)
     self.conceval = conceval(self.insn.bil)
+    #self.state_change = StateChange(Memory(0x1234),Register("RSP",15))
     #print "got conceval, reads: {}, writes: {}".format(self.conceval.reads,self.conceval.writes)
 
     self.dtype = None
@@ -159,7 +128,7 @@ class BapInsn(object):
     if self.insn.bil is not None:
       #print "here's the conceval info"
       #print self.conceval.info
-      x = "\n".join(self.conceval.info)
+      x = "\n".join(str(x) for x in self.conceval.info)
       #print x
       if x == "":
         return "\n".join(str(x) for x in self.insn.bil)

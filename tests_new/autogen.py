@@ -59,7 +59,7 @@ def compiler_command(path,filename,this_arch,args):
     command += [compiler,"-m64"]
     raw_filename += "_x86-64"
   elif this_arch == arch.arm:
-    command += [ARM_GCC]
+    command += [ARM_GCC, "-marm"]
     raw_filename += "_arm"
   elif this_arch == arch.aarch64:
     command += [AARCH64_GCC]
