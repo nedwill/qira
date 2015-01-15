@@ -1,5 +1,6 @@
 from capstone import *
 import capstone # for some unexported (yet) symbols in Capstone 3.0
+import traceback
 
 try:
   import bap
@@ -73,6 +74,44 @@ def conceval(bil):
   r = visit(Conceval_visitor(), bil)
   return r
 
+#unit test this
+#-x = ~x + 1
+#we could use ctypes here, but then we'd need an import
+def calc_offset(offset, arch):
+  if arch in ['aarch64', 'x86-64']:
+    if (offset >> 63) & 1 == 1:
+      #negative
+      offset_fixed = -(0xFFFFFFFFFFFFFFFF-offset+1)
+    else:
+      offset_fixed = offset
+  else:
+    #this is bad; we seem to get 64bit offsets sometimes from bap
+    #use an assert here to catch errors instead
+    offset = offset & 0xFFFFFFFF
+    if (offset >> 31) & 1 == 1:
+      offset_fixed = -(0xFFFFFFFF-offset+1)
+    else:
+      offset_fixed = offset
+  return offset_fixed
+
+def test_calc_offset():
+  expected = {(0xFFFFFFFF, "x86"): -1,
+              (0xFFFFFFFE, "x86"): -2,
+              (0xFFFFFFFF, "x86-64"): 0xFFFFFFFF,
+              (0xFFFFFFFF, "aarch64"): 0xFFFFFFFF,
+              (0xFFFFFFFFFFFFFFFF, "x86-64"): -1,
+              (0xFFFFFFFFFFFFFFFE, "x86-64"): -2}
+  for k,v in expected.iteritems():
+    v_prime = calc_offset(*k)
+    if v_prime != v:
+      k_fmt = (k[0],hex(k[1]),k[2])
+      print "{0} -> {1:x} expected, got {0} -> {2:x}".format(k_fmt,v,v_prime)
+      #return False
+  #return True
+
+#test_calc_offset()
+#assert(test_calc_offset())
+
 class BapInsn(object):
   def __init__(self, raw, address, arch):
     arch = 'armv7' if arch == 'arm' else arch
@@ -139,7 +178,7 @@ class BapInsn(object):
     if self.insn.bil is None:
       return self.insn.has_kind(asm.Branch)
     else:
-      return len(self.jumps) <> 0
+      return len(self.jumps) != 0
 
   def is_ret(self):
     return self.insn.has_kind(asm.Return)
@@ -275,7 +314,8 @@ class CsInsn(object):
 class Instruction(object):
   def __new__(cls, *args, **kwargs):
     try:
-      return BapInsn(*args, **kwargs)
+      #raise Exception("swag")
+      return BapInsn(raw, address, arch)
     except Exception as exn:
       print "bap failed", type(exn).__name__, exn
       return CsInsn(*args, **kwargs)
@@ -339,7 +379,15 @@ class Tags:
       # should reading the instruction tag trigger disasm?
       # and should dests be a seperate tag?
       if tag == "instruction":
+        #if self.address < 0x8040000 or self.address > 0x804FFFF:
+        #if self.address < 0x08000 or self.address > 0x1FFFF:
+        #  print "Got bad address 0x{:x}, traceback follows:".format(self.address)
+        #  print traceback.print_stack()
         dat = self.static.memory(self.address, 0x10)
+        #if dat == "":
+        #  print self.address
+        #  print "dat is empty"
+        #  return None
         # arch should probably come from the address with fallthrough
         self.backing['instruction'] = Instruction(dat, self.address, self.static['arch'])
         self.backing['len'] = self.backing['instruction'].size()
