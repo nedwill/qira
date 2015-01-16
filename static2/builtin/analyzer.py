@@ -36,7 +36,6 @@ def make_function_at(static, address, recurse = True):
         # add this to the potential function boundary starts
         continue
       if c != address + d.size():
-        print c
         #print "%s %x is in %x crefs" % (d,address, c)
         static[c]['crefs'].add(address)
         static._auto_update_name(c,"loc_%x"%(c))
