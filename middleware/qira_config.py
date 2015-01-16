@@ -18,7 +18,7 @@ sys.path.append(BASEDIR)
 WITH_CAPSTONE = True
 
 # turn this off for now on releases
-WITH_STATIC = True
+WITH_STATIC = False
 STATIC_ENGINE = "builtin"
 
 WEBSOCKET_DEBUG = False
