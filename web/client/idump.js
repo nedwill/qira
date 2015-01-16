@@ -23,6 +23,17 @@ function on_instructions(msg) { DS("instructions");
     }
 
     // compute the dynamic stuff
+    var inses = ins.instruction.split("\n");
+    for (var j=0; j < inses.length; j++)
+    {
+      idump += '<div class="instruction" style="margin-left: '+(ins.depth*10)+'px">'+
+        '<div class="change '+(ins.slice ? "halfhighlight": "")+' clnum clnum_'+ins.clnum+'">'+ins.clnum+'</div> '+
+        '<span class="insaddr datainstruction addr addr_'+ins.address+'">'+ins.address+'</span> '+
+        '<div class="instructiondesc">'+inses[j]+'</div> '+
+        '<span class="comment comment_'+ins.address+'">'+(ins.comment !== undefined ? "; "+ins.comment : "")+'</span>'+
+      '</div>';
+    }
+    /*
     idump +=
        '<div class="instruction" style="margin-left: '+(ins.depth*10)+'px">'+
         '<div class="change '+(ins.slice ? "halfhighlight": "")+' clnum clnum_'+ins.clnum+'">'+ins.clnum+'</div> '+
@@ -30,6 +41,7 @@ function on_instructions(msg) { DS("instructions");
         '<div class="instructiondesc">'+highlight_instruction(ins.instruction)+'</div> '+
         '<span class="comment comment_'+ins.address+'">'+(ins.comment !== undefined ? "; "+ins.comment : "")+'</span>'+
       '</div>';
+    */
   }
   $('#idump').html(idump);
   rehighlight();
@@ -39,6 +51,6 @@ function on_instructions(msg) { DS("instructions");
 Deps.autorun(function() { DA("emit getinstructions");
   var forknum = Session.get("forknum");
   var clnum = Session.get("clnum");
-  stream.emit('getinstructions', forknum, clnum, clnum-8, clnum+10);
+  stream.emit('getinstructions', forknum, clnum, clnum-1, clnum+10);
 });
 
