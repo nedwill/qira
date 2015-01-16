@@ -8,6 +8,9 @@ import sys
 import struct
 sys.path.append(qira_config.BASEDIR+"/static2")
 import static2
+import model
+
+import bap
 
 def ghex(a):
   if a == None:
@@ -334,7 +337,7 @@ def analyse_calls(program,flow):
       instr = program.static[addr]['instruction']
       if not instr.is_call():
         continue
-    
+
       endclnum = get_last_instr(trace.dmap,clnum)
       if endclnum is None:
         continue
@@ -377,6 +380,127 @@ def analyse_calls(program,flow):
         if func.abi is 'UNKNOWN':
           func.abi = abi
         func.nargs = max(nargs,func.nargs)
+
+def validate_bil(program, flow):
+
+  for i in xrange(len(program.traces)):
+    trace = program.traces[i]
+    for (addr,data,clnum,ins) in flow:
+      instr = program.static[addr]['instruction']
+      if isinstance(instr, model.BapInsn):
+        bil_instrs = instr.insn.bil
+        if bil_instrs is not None:
+
+          # we have some BIL, let's validate (ARM specific)
+          before_regs = trace.db.fetch_registers(clnum-1)
+          bil_vars = {}
+
+          arm_registers = ["R0","R1","R2","R3","R4","R5","R6","R7",
+                         "R8","R9","R10","R11","R12","SP","LR","PC"]
+          # Add the registers
+          bil_vars = dict(zip(arm_registers, before_regs))
+          memory_writes = {}
+
+          print "BIL to execute:", bil_instrs
+          print "Before (clnum {}): {}".format(clnum-1, bil_vars)
+
+          def eval_bil_expr(expr):
+            if isinstance(expr, bap.bil.Load):
+              addr = eval_bil_expr(expr.idx)
+              size = expr.size
+              mem = trace.fetch_raw_memory(clnum-1, addr, size / 8)
+              if isinstance(expr.endian, bap.bil.LittleEndian):
+                mem = mem[::-1]
+
+              if mem == "": # TODO: bug, return 0
+                return 0L
+
+              return long(mem.encode('hex'), 16)
+            elif isinstance(expr, bap.bil.Store): #TODO: account for endianness
+              addr = eval_bil_expr(expr.idx)
+              val = eval_bil_expr(expr.value)
+              size = expr.size
+              memory_writes[addr] = val
+              #TODO: track memory stores
+            elif isinstance(expr, bap.bil.Var):
+              return bil_vars[expr.name]
+            elif isinstance(expr, bap.bil.Int):
+              return expr.value
+            elif isinstance(expr, bap.bil.Let):
+              tmp = bil_vars.get(expr.var.name, None)
+              bil_vars[expr.var.name] = eval_bil_expr(expr.value)
+              result = eval_bil_expr(expr.expr)
+              if tmp is None:
+                bil_vars.remove(expr.var.name)
+              else:
+                bil_vars[expr.var.name] = tmp
+              return result
+            elif isinstance(expr, bap.bil.PLUS):
+              return eval_bil_expr(expr.lhs) + eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.MINUS):
+              return eval_bil_expr(expr.lhs) - eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.TIMES):
+              return eval_bil_expr(expr.lhs) * eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.DIVIDE):
+              return eval_bil_expr(expr.lhs) / eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.SDIVIDE): # TODO
+              return eval_bil_expr(expr.lhs) / eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.MOD):
+              return eval_bil_expr(expr.lhs) % eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.SMOD): # TODO
+              return eval_bil_expr(expr.lhs) + eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.LSHIFT):
+              return eval_bil_expr(expr.lhs) << eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.RSHIFT):
+              return eval_bil_expr(expr.lhs) >> eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.AND):
+              return eval_bil_expr(expr.lhs) & eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.OR):
+              return eval_bil_expr(expr.lhs) | eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.XOR):
+              return eval_bil_expr(expr.lhs) ^ eval_bil_expr(expr.rhs)
+            elif isinstance(expr, bap.bil.EQ):
+              return 1 if eval_bil_expr(expr.lhs) == eval_bil_expr(expr.rhs) else 0
+            elif isinstance(expr, bap.bil.NEQ):
+              return 1 if eval_bil_expr(expr.lhs) != eval_bil_expr(expr.rhs) else 0
+            elif isinstance(expr, bap.bil.LT):
+              return 1 if eval_bil_expr(expr.lhs) < eval_bil_expr(expr.rhs) else 0
+            elif isinstance(expr, bap.bil.LE):
+              return 1 if eval_bil_expr(expr.lhs) <= eval_bil_expr(expr.rhs) else 0
+            elif isinstance(expr, bap.bil.SLT): # TODO
+              return 1 if eval_bil_expr(expr.lhs) < eval_bil_expr(expr.rhs) else 0
+            elif isinstance(expr, bap.bil.SLE): # TODO
+              return 1 if eval_bil_expr(expr.lhs) <= eval_bil_expr(expr.rhs) else 0
+            elif isinstance(expr, bap.bil.NEG):
+              return -eval_bil_expr(expr.expr) #TODO: called expr?
+            elif isinstance(expr, bap.bil.NOT):
+              return ~eval_bil_expr(expr.expr) #TODO: called expr?
+            elif isinstance(expr, bap.bil.Cast): #TODO: implement casting
+              return eval_bil_expr(expr.expr)
+            elif isinstance(expr, bap.bil.Unknown):
+              pass
+            elif isinstance(expr, bap.bil.Ite):
+              pass
+            elif isinstance(expr, bap.bil.Extract):
+              pass
+            elif isinstance(expr, bap.bil.Concat):
+              pass
+
+          for ins in bil_instrs:
+            if isinstance(ins, bap.bil.Move): # only Moves cause state change
+              bil_vars[ins.var.name] = eval_bil_expr(ins.expr)
+
+          print "After (clnum {}): {}".format(clnum, bil_vars)
+          after_regs = trace.db.fetch_registers(clnum)
+          correct_regs = dict(zip(arm_registers, after_regs))
+
+          print "Correct After (clnum {}): {}".format(clnum, correct_regs)
+
+          for reg, correct in correct_regs.iteritems():
+            if reg == "PC": continue #TODO: address
+            assert bil_vars[reg] == correct, reg + " is incorrect! ({} != {})".format(hex(bil_vars[reg]), hex(correct))
+
+          print "-"*50+"\n\n"
 
 
 def display_call_args(instr,trace,clnum):
