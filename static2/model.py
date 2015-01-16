@@ -175,11 +175,11 @@ class BapInsn(object):
     if self.insn.bil is not None:
       #print "here's the conceval info"
       #print self.conceval.info
-      x = "\n".join(str(x) for x in self.conceval.info)
+      #x = "\n".join(str(x) for x in self.conceval.info)
       #print x
-      if x == "":
-        return "\n".join(str(x) for x in self.insn.bil)
-      return x
+      #if x == "":
+      return "\n".join(str(x) for x in self.insn.bil)
+      #return x
     return self.insn.asm
 
   def is_jump(self):
