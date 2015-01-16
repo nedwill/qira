@@ -8,7 +8,7 @@ import sys
 import struct
 sys.path.append(qira_config.BASEDIR+"/static2")
 import static2
-import model
+from model import BapInsn, calc_offset
 
 import bap
 
@@ -387,7 +387,7 @@ def validate_bil(program, flow):
     trace = program.traces[i]
     for (addr,data,clnum,ins) in flow:
       instr = program.static[addr]['instruction']
-      if isinstance(instr, model.BapInsn):
+      if isinstance(instr, BapInsn):
         bil_instrs = instr.insn.bil
         if bil_instrs is not None:
 
@@ -397,16 +397,18 @@ def validate_bil(program, flow):
 
           arm_registers = ["R0","R1","R2","R3","R4","R5","R6","R7",
                          "R8","R9","R10","R11","R12","SP","LR","PC"]
+
           # Add the registers
           bil_vars = dict(zip(arm_registers, before_regs))
           memory_writes = {}
 
-          print "BIL to execute:", bil_instrs
-          print "Before (clnum {}): {}".format(clnum-1, bil_vars)
+          bil_vars["PC"] += 4 # Assume no thumb
 
+          print "BIL to execute:", bil_instrs
           def eval_bil_expr(expr):
             if isinstance(expr, bap.bil.Load):
               addr = eval_bil_expr(expr.idx)
+              print "READ FROM",hex(addr)
               size = expr.size
               mem = trace.fetch_raw_memory(clnum-1, addr, size / 8)
               if isinstance(expr.endian, bap.bil.LittleEndian):
@@ -425,7 +427,7 @@ def validate_bil(program, flow):
             elif isinstance(expr, bap.bil.Var):
               return bil_vars[expr.name]
             elif isinstance(expr, bap.bil.Int):
-              return expr.value
+              return calc_offset(expr.value, "arm")
             elif isinstance(expr, bap.bil.Let):
               tmp = bil_vars.get(expr.var.name, None)
               bil_vars[expr.var.name] = eval_bil_expr(expr.value)
@@ -490,14 +492,12 @@ def validate_bil(program, flow):
             if isinstance(ins, bap.bil.Move): # only Moves cause state change
               bil_vars[ins.var.name] = eval_bil_expr(ins.expr)
 
-          print "After (clnum {}): {}".format(clnum, bil_vars)
           after_regs = trace.db.fetch_registers(clnum)
           correct_regs = dict(zip(arm_registers, after_regs))
 
           print "Correct After (clnum {}): {}".format(clnum, correct_regs)
 
           for reg, correct in correct_regs.iteritems():
-            if reg == "PC": continue #TODO: address
             assert bil_vars[reg] == correct, reg + " is incorrect! ({} != {})".format(hex(bil_vars[reg]), hex(correct))
 
           print "-"*50+"\n\n"
