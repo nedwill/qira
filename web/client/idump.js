@@ -51,6 +51,6 @@ function on_instructions(msg) { DS("instructions");
 Deps.autorun(function() { DA("emit getinstructions");
   var forknum = Session.get("forknum");
   var clnum = Session.get("clnum");
-  stream.emit('getinstructions', forknum, clnum, clnum-1, clnum+10);
+  stream.emit('getinstructions', forknum, clnum, clnum-8, clnum+10);
 });
 
