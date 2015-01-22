@@ -35,10 +35,6 @@ class BapInsn(object):
       raise ValueError("Empty memory at {0:#x}".format(address))
     arch = 'armv7' if arch == 'arm' else arch
 
-    if raw == "":
-      print "[-] Empty string found. Address = 0x{:x}.".format(address)
-      raise ValueError("Empty string passed to BapInsn")
-
     insns = list(bap.disasm(raw,
                             addr=address,
                             arch=arch,
@@ -78,6 +74,8 @@ class BapInsn(object):
       dst = self.insn.operands[0]
       if isinstance(dst, asm.Imm):
         dst_tmp = address + calc_offset(dst.arg, arch)
+        if arch in ["x86","x86-64"]: #jump after instruction on x86, bap should tell us this
+          dst_tmp += self.insn.size
         if debug_level >= 1:
           print "[+] Added dest 0x{:x} -> 0x{:x}. (from disassembly)".format(address, dst_tmp)
         dests.append((dst_tmp, self.dtype))
