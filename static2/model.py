@@ -5,7 +5,7 @@ import qira_config
 if qira_config.WITH_BAP:
   import bap
   from bap import adt, arm, asm, bil
-  from adt import Visitor, visit
+  from bap.adt import Visitor, visit
   from binascii import hexlify
 
 __all__ = ["Tags", "Function", "Block", "Instruction", "DESTTYPE","ABITYPE"]
