@@ -75,13 +75,9 @@ class BapInsn(object):
     elif self.is_jump() or self.is_call():
       dst = self.insn.operands[0]
       if isinstance(dst, asm.Imm):
-<<<<<<< HEAD
         dst_tmp = address + calc_offset(dst.arg, arch)
         print "[+] Added dest 0x{:x}. (from disassembly)".format(dst_tmp)
         dests.append((dst_tmp, self.dtype))
-=======
-        dests.append((dst.arg + address, self.dtype))
->>>>>>> d8449577edcdb3f46725c6cf315d107064f9e056
 
     if self.is_ret():
       self._dests = []
