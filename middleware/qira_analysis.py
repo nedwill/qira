@@ -410,15 +410,14 @@ def validate_bil(program, flow):
               mem = trace.fetch_raw_memory(clnum-1, addr, size / 8)
               if isinstance(expr.endian, bap.bil.LittleEndian):
                 mem = mem[::-1]
-              if mem == "": # TODO: bug, return 0
+              if mem == "": # TODO: qira bug?
                 return 0L
               return long(mem.encode('hex'), 16)
-            elif isinstance(expr, bap.bil.Store): #TODO: account for endianness
+            elif isinstance(expr, bap.bil.Store):
               addr = eval_bil_expr(expr.idx)
               val = eval_bil_expr(expr.value)
               size = expr.size
               memory_writes[addr] = (val, size)
-              #TODO: track memory stores
             elif isinstance(expr, bap.bil.Var):
               return bil_vars[expr.name]
             elif isinstance(expr, bap.bil.Int):
@@ -483,7 +482,14 @@ def validate_bil(program, flow):
               return -eval_bil_expr(expr.arg)
             elif isinstance(expr, bap.bil.NOT):
               return ~eval_bil_expr(expr.arg)
-            elif isinstance(expr, bap.bil.Cast): #TODO: implement casting
+            elif isinstance(expr, bap.bil.HIGH):
+              mask = (1 << expr.size) - 1
+              shift = 32 - expr.size
+              return (eval_bil_expr(expr.expr) >> shift) & mask
+            elif isinstance(expr, bap.bil.LOW):
+              mask = (1 << expr.size) - 1
+              return eval_bil_expr(expr.expr) & mask
+            elif isinstance(expr, bap.bil.Cast):
               return eval_bil_expr(expr.expr)
             elif isinstance(expr, bap.bil.Unknown):
               pass
