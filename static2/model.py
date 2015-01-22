@@ -1,13 +1,12 @@
 from capstone import *
 import capstone # for some unexported (yet) symbols in Capstone 3.0
-import traceback
+import qira_config
 
-try:
+if qira_config.WITH_BAP:
   import bap
   from bap import adt, arm, asm, bil
-  from bap.adt import Visitor, visit
-except ImportError:
-  pass
+  from adt import Visitor, visit
+  from binascii import hexlify
 
 __all__ = ["Tags", "Function", "Block", "Instruction", "DESTTYPE","ABITYPE"]
 
@@ -18,102 +17,21 @@ class DESTTYPE(object):
   call = 3
   implicit = 4
 
-
-def exists(cont,f):
-  try:
-    r = (x for x in cont if f(x)).next()
-    return True
-  except StopIteration:
-    return False
-
-class Jmp_visitor(Visitor):
-  def __init__(self):
-    self.in_condition = False
-    self.jumps = []
-
-  def visit_If(self, exp):
-    was = self.in_condition
-    self.in_condition = True
-    self.run(exp.true)
-    self.run(exp.false)
-    self.in_condition = was
-
-  def visit_Jmp(self, exp):
-    self.jumps.append((exp,
-                       DESTTYPE.cjump if self.in_condition else
-                       DESTTYPE.jump))
-
-class Access_visitor(Visitor):
-  def __init__(self):
-      self.reads = []
-      self.writes = []
-
-  def visit_Move(self, stmt):
-      self.writes.append(stmt.var.name)
-      self.run(stmt.expr)
-
-  def visit_Var(self, var):
-      self.reads.append(var.name)
-
-class Conceval_visitor(Visitor):
-  def __init__(self):
-    self.info = []
-
-  def visit_Move(self, stmt):
-    self.info.append(stmt.arg)
-    self.run(stmt.expr)
-
-def jumps(bil):
-  return visit(Jmp_visitor(), bil).jumps
-
-def accesses(bil):
-  r = visit(Access_visitor(), bil)
-  return (r.reads, r.writes)
-
-def conceval(bil):
-  r = visit(Conceval_visitor(), bil)
-  return r
-
-#unit test this
-#-x = ~x + 1
-#we could use ctypes here, but then we'd need an import
-def calc_offset(offset, arch):
-  if arch in ['aarch64', 'x86-64']:
-    if (offset >> 63) & 1 == 1:
-      #negative
-      offset_fixed = -(0xFFFFFFFFFFFFFFFF-offset+1)
+class Instruction(object):
+  def __new__(cls, *args, **kwargs):
+    if qira_config.WITH_BAP:
+      try:
+        return BapInsn(*args, **kwargs)
+      except Exception as exn:
+        print "bap failed", type(exn).__name__, exn
+        return CsInsn(*args, **kwargs)
     else:
-      offset_fixed = offset
-  else:
-    #this is bad; we seem to get 64bit offsets sometimes from bap
-    #use an assert here to catch errors instead
-    offset = offset & 0xFFFFFFFF
-    if (offset >> 31) & 1 == 1:
-      offset_fixed = -(0xFFFFFFFF-offset+1)
-    else:
-      offset_fixed = offset
-  return offset_fixed
-
-def test_calc_offset():
-  expected = {(0xFFFFFFFF, "x86"): -1,
-              (0xFFFFFFFE, "x86"): -2,
-              (0xFFFFFFFF, "x86-64"): 0xFFFFFFFF,
-              (0xFFFFFFFF, "aarch64"): 0xFFFFFFFF,
-              (0xFFFFFFFFFFFFFFFF, "x86-64"): -1,
-              (0xFFFFFFFFFFFFFFFE, "x86-64"): -2}
-  for k,v in expected.iteritems():
-    v_prime = calc_offset(*k)
-    if v_prime != v:
-      k_fmt = (k[0],hex(k[1]),k[2])
-      print "{0} -> {1:x} expected, got {0} -> {2:x}".format(k_fmt,v,v_prime)
-      #return False
-  #return True
-
-#test_calc_offset()
-#assert(test_calc_offset())
+      return CsInsn(*args, **kwargs)
 
 class BapInsn(object):
   def __init__(self, raw, address, arch):
+    if len(raw) == 0:
+      raise ValueError("Empty memory at {0:#x}".format(address))
     arch = 'armv7' if arch == 'arm' else arch
 
     if raw == "":
@@ -123,15 +41,10 @@ class BapInsn(object):
     insns = list(bap.disasm(raw,
                             addr=address,
                             arch=arch,
-                            server='http://127.0.0.1:8080',
                             stop_conditions=[asm.Valid()]))
     if len(insns) == 0:
-      raise ValueError("Invalid instruction:\n{0}".
-                       format(raw.encode('hex')))
-    elif len(insns) > 1:
-      raise ValueError("Code fragment {0} contains {1} insns:\n{2}".
-                       format(raw.encode('hex'), len(insns),
-                              "\n".join(i.asm for i in insns)))
+      raise ValueError("Invalid instruction for {1} at {2:#x}[{3}]:\n{0}".
+                       format(hexlify(raw), arch, address, len(raw)))
     self.insn = insns[0]
 
     self.regs_read, self.regs_write = accesses(self.insn.bil)
@@ -162,9 +75,13 @@ class BapInsn(object):
     elif self.is_jump() or self.is_call():
       dst = self.insn.operands[0]
       if isinstance(dst, asm.Imm):
-        dst_tmp = self.insn.addr + calc_offset(dst.arg, arch)
+<<<<<<< HEAD
+        dst_tmp = address + calc_offset(dst.arg, arch)
         print "[+] Added dest 0x{:x}. (from disassembly)".format(dst_tmp)
         dests.append((dst_tmp, self.dtype))
+=======
+        dests.append((dst.arg + address, self.dtype))
+>>>>>>> d8449577edcdb3f46725c6cf315d107064f9e056
 
     if self.is_ret():
       self._dests = []
@@ -206,6 +123,94 @@ class BapInsn(object):
   def dests(self):
     return self._dests
 
+def exists(cont,f):
+  try:
+    r = (x for x in cont if f(x)).next()
+    return True
+  except StopIteration:
+    return False
+
+if qira_config.WITH_BAP:
+  class Jmp_visitor(Visitor):
+    def __init__(self):
+      self.in_condition = False
+      self.jumps = []
+
+    def visit_If(self, exp):
+      was = self.in_condition
+      self.in_condition = True
+      self.run(exp.true)
+      self.run(exp.false)
+      self.in_condition = was
+
+    def visit_Jmp(self, exp):
+      self.jumps.append((exp,
+                         DESTTYPE.cjump if self.in_condition else
+                         DESTTYPE.jump))
+
+  class Access_visitor(Visitor):
+    def __init__(self):
+        self.reads = []
+        self.writes = []
+
+    def visit_Move(self, stmt):
+        self.writes.append(stmt.var.name)
+        self.run(stmt.expr)
+
+    def visit_Var(self, var):
+        self.reads.append(var.name)
+
+  class Conceval_visitor(Visitor):
+    def __init__(self):
+      self.info = []
+
+    def visit_Move(self, stmt):
+      self.info.append(stmt.arg)
+      self.run(stmt.expr)
+
+  def jumps(bil):
+    return visit(Jmp_visitor(), bil).jumps
+
+  def accesses(bil):
+    r = visit(Access_visitor(), bil)
+    return (r.reads, r.writes)
+
+  def conceval(bil):
+    r = visit(Conceval_visitor(), bil)
+    return r
+
+  #we could use ctypes here, but then we'd need an import
+  def calc_offset(offset, arch):
+    if arch in ['aarch64', 'x86-64']:
+      if (offset >> 63) & 1 == 1:
+        #negative
+        offset_fixed = -(0xFFFFFFFFFFFFFFFF-offset+1)
+      else:
+        offset_fixed = offset
+    else:
+      #this is bad; we seem to get 64bit offsets sometimes from bap
+      #use an assert here to catch errors instead
+      offset = offset & 0xFFFFFFFF
+      if (offset >> 31) & 1 == 1:
+        offset_fixed = -(0xFFFFFFFF-offset+1)
+      else:
+        offset_fixed = offset
+    return offset_fixed
+
+  def test_calc_offset():
+    expected = {(0xFFFFFFFF, "x86"): -1,
+                (0xFFFFFFFE, "x86"): -2,
+                (0xFFFFFFFF, "x86-64"): 0xFFFFFFFF,
+                (0xFFFFFFFF, "aarch64"): 0xFFFFFFFF,
+                (0xFFFFFFFFFFFFFFFF, "x86-64"): -1,
+                (0xFFFFFFFFFFFFFFFE, "x86-64"): -2}
+    for k,v in expected.iteritems():
+      v_prime = calc_offset(*k)
+      if v_prime != v:
+        k_fmt = (k[0],hex(k[1]),k[2])
+        print "{0} -> {1:x} expected, got {0} -> {2:x}".format(k_fmt,v,v_prime)
+
+  #test_calc_offset()
 
 # Instruction class
 class CsInsn(object):
@@ -231,7 +236,6 @@ class CsInsn(object):
     try:
       self.i = self.md.disasm(self.raw, self.address).next()
       self.decoded = True
-
       self.regs_read = self.i.regs_read
       self.regs_write = self.i.regs_write
 
@@ -315,13 +319,6 @@ class CsInsn(object):
 
     return dl
 
-class Instruction(object):
-  def __new__(cls, *args, **kwargs):
-    try:
-      return BapInsn(*args, **kwargs)
-    except Exception as exn:
-      print "bap failed", type(exn).__name__, exn
-      return CsInsn(*args, **kwargs)
 
 class ABITYPE(object):
   UNKNOWN       = ([],None)
