@@ -382,10 +382,10 @@ def analyse_calls(program,flow):
         func.nargs = max(nargs,func.nargs)
 
 def validate_bil(program, flow):
-
   for i in xrange(len(program.traces)):
     trace = program.traces[i]
-    bil_vars = {"orig_offset":0} #TODO: this is wrong
+    libraries = [(m[3],m[1]) for m in trace.mapped]
+    bil_vars = {"orig_offset":0} #TODO: this is wrong; likely a bug in ldr lifting
     for (addr,data,clnum,ins) in flow:
       instr = program.static[addr]['instruction']
       if isinstance(instr, BapInsn):
@@ -394,35 +394,30 @@ def validate_bil(program, flow):
 
           # we have some BIL, let's validate (ARM specific)
           before_regs = trace.db.fetch_registers(clnum-1)
-
           arm_registers = ["R0","R1","R2","R3","R4","R5","R6","R7",
                          "R8","R9","R10","R11","R12","SP","LR","PC"]
-
+          validate = True
           # Add the registers
           bil_vars.update(dict(zip(arm_registers, before_regs)))
           memory_writes = {}
 
           bil_vars["PC"] += 4 # Assume no thumb
 
-          print "BIL to execute:", bil_instrs
           def eval_bil_expr(expr):
-            #TODO: handle If
             if isinstance(expr, bap.bil.Load):
               addr = eval_bil_expr(expr.idx)
               size = expr.size
               mem = trace.fetch_raw_memory(clnum-1, addr, size / 8)
               if isinstance(expr.endian, bap.bil.LittleEndian):
                 mem = mem[::-1]
-
               if mem == "": # TODO: bug, return 0
                 return 0L
-
               return long(mem.encode('hex'), 16)
             elif isinstance(expr, bap.bil.Store): #TODO: account for endianness
               addr = eval_bil_expr(expr.idx)
               val = eval_bil_expr(expr.value)
               size = expr.size
-              memory_writes[addr] = val
+              memory_writes[addr] = (val, size)
               #TODO: track memory stores
             elif isinstance(expr, bap.bil.Var):
               return bil_vars[expr.name]
@@ -454,6 +449,17 @@ def validate_bil(program, flow):
             elif isinstance(expr, bap.bil.LSHIFT):
               return eval_bil_expr(expr.lhs) << eval_bil_expr(expr.rhs)
             elif isinstance(expr, bap.bil.RSHIFT):
+              # logic right shift
+              shift = eval_bil_expr(expr.rhs)
+              var = eval_bil_expr(expr.lhs)
+
+              if shift > 1:
+                var >>= 1
+                var = var & 0x7fffffff
+                var >>= (shift - 1)
+
+              return var
+            elif isinstance(expr, bap.bil.ARSHIFT):
               return eval_bil_expr(expr.lhs) >> eval_bil_expr(expr.rhs)
             elif isinstance(expr, bap.bil.AND):
               return eval_bil_expr(expr.lhs) & eval_bil_expr(expr.rhs)
@@ -482,29 +488,58 @@ def validate_bil(program, flow):
             elif isinstance(expr, bap.bil.Unknown):
               pass
             elif isinstance(expr, bap.bil.Ite):
-              pass
+              if eval_bil_(expr.cond):
+                return eval_bil_expr(expr.true)
+              else:
+                return eval_bil_expr(expr.false)
             elif isinstance(expr, bap.bil.Extract):
               pass
             elif isinstance(expr, bap.bil.Concat):
               pass
 
-          for ins in bil_instrs:
-            if isinstance(ins, bap.bil.Move):
-              bil_vars[ins.var.name] = eval_bil_expr(ins.expr)
-            elif isinstance(ins, bap.bil.Jmp):
-              bil_vars["PC"] = eval_bil_expr(ins.arg)
-              print "Jumped to", ins.arg, "= ", hex(bil_vars["PC"])
-            elif isinstance(ins, bap.bil.If):
-              pass #TODO: implement
+          def run_bil_instruction(st):
+            if isinstance(st, bap.bil.Move):
+              bil_vars[st.var.name] = eval_bil_expr(st.expr)
+            elif isinstance(st, bap.bil.Jmp):
+              newpc = eval_bil_expr(st.arg)
+              for (base, size) in libraries:
+                if newpc >= base and newpc <= base+size: #check if we're jumping to library
+                  validate = False
+              bil_vars["PC"] = newpc
+            elif isinstance(st, bap.bil.If):
+              if eval_bil_expr(st.cond):
+                run_bil_instruction(st.true)
+              else:
+                run_bil_instruction(st.false)
+
+          for st in bil_instrs:
+            run_bil_instruction(st)
 
           after_regs = trace.db.fetch_registers(clnum)
           correct_regs = dict(zip(arm_registers, after_regs))
 
-          for reg, correct in correct_regs.iteritems():
-            if bil_vars[reg] != correct: print reg + " is incorrect! ({} != {})".format(hex(bil_vars[reg]), hex(correct))
+          if validate:
+            error = False
+            for reg, correct in correct_regs.iteritems():
+              if bil_vars[reg] != correct:
+                error = True
+                print reg + " is incorrect! ({} != {})".format(
+                    hex(bil_vars[reg]), hex(correct))
 
-          print "-"*50+"\n\n"
+            for addr, (value, size) in memory_writes.items():
+              mem = trace.fetch_raw_memory(clnum, addr, size/8)
+              mem = mem[::-1] #assume little endian
+              memvalue = long(mem.encode('hex'), 16)
+              if memvalue != value:
+                error = True
+                print "Value at address {} is incorrect! ({} != {})".format(
+                    hex(addr), hex(value), hex(memvalue)
+                    )
 
+            if error:
+              print "ASM was:", ins
+              print "BIL was:", bil_instrs
+              print "-"*50 +"\n"
 
 def display_call_args(instr,trace,clnum):
   program = trace.program
