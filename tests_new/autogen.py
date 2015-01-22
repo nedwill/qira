@@ -43,7 +43,7 @@ def compiler_command(path,filename,this_arch,args):
   raw_filename = ".".join(filename.split(".")[:-1])
 
   if args.clang:
-    if this_arch not in [arch.x86,arch.x86_64]:
+    if this_arch not in [arch.x86,arch.x86_64,arch.arm]:
       #todo: fix this, clang should support all archs pretty easily
       print "clang doesn't support arch"
       return []
@@ -59,7 +59,9 @@ def compiler_command(path,filename,this_arch,args):
     command += [compiler,"-m64"]
     raw_filename += "_x86-64"
   elif this_arch == arch.arm:
-    command += [ARM_GCC, "-marm"]
+    command += [compiler, "-marm"]
+    if args.clang:
+      command += ["-target","arm-linux-gnueabi","-integrated-as"]
     raw_filename += "_arm"
   elif this_arch == arch.aarch64:
     command += [AARCH64_GCC]
