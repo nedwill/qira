@@ -7,6 +7,7 @@ if qira_config.WITH_BAP:
   from bap import adt, arm, asm, bil
   from bap.adt import Visitor, visit
   from binascii import hexlify
+  debug_level = 0 #set to 0 to remove dest prints. we should set this elsewhere
 
 __all__ = ["Tags", "Function", "Block", "Instruction", "DESTTYPE","ABITYPE"]
 
@@ -69,14 +70,16 @@ class BapInsn(object):
     if self.insn.bil is not None:
       for (jmp,dtype) in self.jumps:
         if isinstance(jmp.arg, bil.Int):
-          print "[+] Added dest 0x{:x}. (from BIL)".format(jmp.arg.value)
+          if debug_level >= 1:
+            print "[+] Added dest 0x{:x} -> 0x{:x}. (from BIL)".format(address, jmp.arg.value)
           dests.append((jmp.arg.value, dtype))
 
     elif self.is_jump() or self.is_call():
       dst = self.insn.operands[0]
       if isinstance(dst, asm.Imm):
         dst_tmp = address + calc_offset(dst.arg, arch)
-        print "[+] Added dest 0x{:x}. (from disassembly)".format(dst_tmp)
+        if debug_level >= 1:
+          print "[+] Added dest 0x{:x} -> 0x{:x}. (from disassembly)".format(address, dst_tmp)
         dests.append((dst_tmp, self.dtype))
 
     if self.is_ret():
@@ -303,14 +306,16 @@ class CsInsn(object):
     dl = []
     if self.code_follows():
       #this piece of code leads implicitly to the next instruction
-      print "[+] Added dest 0x{:x}. (fall-through, from Capstone)".format(self.address+self.size())
+      if debug_level >= 1:
+        print "[+] Added dest 0x{:x} -> 0x{:x}. (fall-through, from Capstone)".format(self.address, self.address+self.size())
       dl.append((self.address+self.size(),DESTTYPE.implicit))
 
     if self.is_jump() or self.is_call():
       #if we take a PTR and not a MEM or REG operand (TODO: better support for MEM operands)
       #TODO: shouldn't be x86 specific
       if (self.i.operands[0].type == capstone.CS_OP_IMM):
-        print "[+] Added dest 0x{:x}. (immediate, from Capstone)".format(self.i.operands[0].value.imm)
+        if debug_level >= 1:
+          print "[+] Added dest 0x{:x} -> 0x{:x}. (immediate, from Capstone)".format(self.address, self.i.operands[0].value.imm)
         dl.append((self.i.operands[0].value.imm,self.dtype)) #the target of the jump/call
 
     return dl
