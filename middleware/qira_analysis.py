@@ -85,7 +85,7 @@ def draw_multigraph(blocks):
 
   print "drawing png @ /tmp/graph.png"
   graph.write_png('/tmp/graph.png')
-  
+
 
 def get_blocks(flow, static=True):
   # look at addresses
@@ -385,6 +385,7 @@ def validate_bil(program, flow):
 
   for i in xrange(len(program.traces)):
     trace = program.traces[i]
+    bil_vars = {"orig_offset":0} #TODO: this is wrong
     for (addr,data,clnum,ins) in flow:
       instr = program.static[addr]['instruction']
       if isinstance(instr, BapInsn):
@@ -393,22 +394,21 @@ def validate_bil(program, flow):
 
           # we have some BIL, let's validate (ARM specific)
           before_regs = trace.db.fetch_registers(clnum-1)
-          bil_vars = {}
 
           arm_registers = ["R0","R1","R2","R3","R4","R5","R6","R7",
                          "R8","R9","R10","R11","R12","SP","LR","PC"]
 
           # Add the registers
-          bil_vars = dict(zip(arm_registers, before_regs))
+          bil_vars.update(dict(zip(arm_registers, before_regs)))
           memory_writes = {}
 
           bil_vars["PC"] += 4 # Assume no thumb
 
           print "BIL to execute:", bil_instrs
           def eval_bil_expr(expr):
+            #TODO: handle If
             if isinstance(expr, bap.bil.Load):
               addr = eval_bil_expr(expr.idx)
-              print "READ FROM",hex(addr)
               size = expr.size
               mem = trace.fetch_raw_memory(clnum-1, addr, size / 8)
               if isinstance(expr.endian, bap.bil.LittleEndian):
@@ -474,9 +474,9 @@ def validate_bil(program, flow):
             elif isinstance(expr, bap.bil.SLE): # TODO
               return 1 if eval_bil_expr(expr.lhs) <= eval_bil_expr(expr.rhs) else 0
             elif isinstance(expr, bap.bil.NEG):
-              return -eval_bil_expr(expr.expr) #TODO: called expr?
+              return -eval_bil_expr(expr.arg)
             elif isinstance(expr, bap.bil.NOT):
-              return ~eval_bil_expr(expr.expr) #TODO: called expr?
+              return ~eval_bil_expr(expr.arg)
             elif isinstance(expr, bap.bil.Cast): #TODO: implement casting
               return eval_bil_expr(expr.expr)
             elif isinstance(expr, bap.bil.Unknown):
@@ -489,16 +489,19 @@ def validate_bil(program, flow):
               pass
 
           for ins in bil_instrs:
-            if isinstance(ins, bap.bil.Move): # only Moves cause state change
+            if isinstance(ins, bap.bil.Move):
               bil_vars[ins.var.name] = eval_bil_expr(ins.expr)
+            elif isinstance(ins, bap.bil.Jmp):
+              bil_vars["PC"] = eval_bil_expr(ins.arg)
+              print "Jumped to", ins.arg, "= ", hex(bil_vars["PC"])
+            elif isinstance(ins, bap.bil.If):
+              pass #TODO: implement
 
           after_regs = trace.db.fetch_registers(clnum)
           correct_regs = dict(zip(arm_registers, after_regs))
 
-          print "Correct After (clnum {}): {}".format(clnum, correct_regs)
-
           for reg, correct in correct_regs.iteritems():
-            assert bil_vars[reg] == correct, reg + " is incorrect! ({} != {})".format(hex(bil_vars[reg]), hex(correct))
+            if bil_vars[reg] != correct: print reg + " is incorrect! ({} != {})".format(hex(bil_vars[reg]), hex(correct))
 
           print "-"*50+"\n\n"
 
