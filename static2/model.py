@@ -88,8 +88,8 @@ class BapInsn(object):
       self._dests = dests
 
   def __str__(self):
-    if self.insn.bil is not None:
-      return "\n".join(str(x) for x in self.insn.bil)
+    #if self.insn.bil is not None:
+    #  return "\n".join(str(x) for x in self.insn.bil)
     return self.insn.asm
 
   def is_jump(self):
