@@ -68,7 +68,9 @@ class BapInsn(object):
         if isinstance(jmp.arg, bil.Int):
           if debug_level >= 1:
             print "[+] Added dest 0x{:x} -> 0x{:x}. (from BIL)".format(address, jmp.arg.value)
-          dests.append((jmp.arg.value, dtype))
+          #fixed a bug here as the jump visitor doesn't handle calls
+          #this isn't in the ADT. we can fix it here, but is this the best thing to do?
+          dests.append((jmp.arg.value, self.dtype if self.dtype == DESTTYPE.call else dtype))
 
     elif self.is_jump() or self.is_call():
       dst = self.insn.operands[0]
