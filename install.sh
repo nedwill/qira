@@ -9,6 +9,7 @@ if [[ "$unamestr" == 'Linux' ]]; then
   # build for building qiradb and stuff for flask like gevent
   if [ $(which apt-get) ]; then
     echo "installing apt packages"
+    sudo apt-get update -qq
     sudo apt-get -y install build-essential python-dev python-pip debootstrap libjpeg-dev zlib1g-dev unzip wget graphviz
 
     # only python package we install globally
@@ -45,11 +46,22 @@ else
 fi
 
 if [ -d bap -o "x$BAP" = "xdisable" ]; then
-    echo "skipping BAP"
+    echo "Skipping BAP"
 else
-    echo "building BAP"
-    ./bap_build.sh
-    $PIP install ./bap/python
+    echo "Installing BAP"
+    export OPAMYES=1
+    export OPAMVERBOSE=1
+    export OPAMJOBS=4
+
+    echo 'yes' | sudo add-apt-repository ppa:avsm/ocaml42+opam12
+    sudo apt-get update -qq
+    sudo apt-get install -qq ocaml ocaml-native-compilers camlp4-extra opam
+    sudo apt-get install libgmp-dev llvm-3.4-dev time
+
+    opam init
+    opam install bap
+
+    $PIP install --upgrade git+git://github.com/BinaryAnalysisPlatform/bap.git
 fi
 
 echo "making symlink"
