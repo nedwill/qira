@@ -169,6 +169,30 @@ if qira_config.WITH_BAP:
     r = visit(Access_visitor(), bil)
     return (r.reads, r.writes)
 
+  def calc_offset(offset, arch):
+    if arch in ['aarch64', 'x86-64']:
+      if (offset >> 63) & 1 == 1:
+        #negative
+        offset_fixed = -(0xFFFFFFFFFFFFFFFF-offset+1)
+      else:
+        offset_fixed = offset
+    else:
+      assert offset == offset & 0xFFFFFFFF
+      if (offset >> 31) & 1 == 1:
+        offset_fixed = -(0xFFFFFFFF-offset+1)
+
+  def test_calc_offset():
+    expected = {(0xFFFFFFFF, "x86"): -1,
+                (0xFFFFFFFE, "x86"): -2,
+                (0xFFFFFFFF, "x86-64"): 0xFFFFFFFF,
+                (0xFFFFFFFF, "aarch64"): 0xFFFFFFFF,
+                (0xFFFFFFFFFFFFFFFF, "x86-64"): -1,
+                (0xFFFFFFFFFFFFFFFE, "x86-64"): -2}
+    for k,v in expected.iteritems():
+      v_prime = calc_offset(*k)
+      if v_prime != v:
+        k_fmt = (k[0],hex(k[1]),k[2])
+        print "{0} -> {1:x} expected, got {0} -> {2:x}".format(k_fmt,v,v_prime)
 
 # Instruction class
 class CsInsn(object):
