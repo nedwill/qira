@@ -58,10 +58,13 @@ class BapInsn(object):
     if self.code_follows():
       dests.append((self.insn.addr + self.insn.size,
                     DESTTYPE.implicit))
+
     if self.insn.bil is not None:
       for (jmp,dtype) in self.jumps:
         if isinstance(jmp.arg, bil.Int):
-            dests.append((jmp.arg.value, dtype))
+          if self.is_call():
+            dtype = DESTTYPE.call
+          dests.append((jmp.arg.value, dtype))
 
     elif self.is_jump() or self.is_call():
       dst = self.insn.operands[0]
@@ -89,13 +92,27 @@ class BapInsn(object):
     return self.insn.has_kind(asm.Call)
 
   def is_ending(self):
-    return self.insn.has_kind(asm.Terminator)
+    if self.insn.bil is None:
+      return self.insn.has_kind(asm.Terminator)
+    else:
+      return self.is_jump and self.is_unconditional()
 
   def is_conditional(self):
-    return self.insn.has_kind(asm.Conditional_branch)
+    if self.insn.bil is None:
+      return self.insn.has_kind(asm.Conditional_branch)
+    else:
+      for (_, dtype) in self.jumps:
+        if dtype == DESTTYPE.cjump:
+          return True
+      return False
 
   def is_unconditional(self):
-    return self.insn.has_kind(asm.Unconditional_branch)
+    if self.insn.bil is None:
+      return self.insn.has_kind(asm.Unconditional_branch)
+    else:
+      if len(self.jumps) == 0:
+        return False
+      return not self.is_conditional()
 
   def code_follows(self):
     return not (self.is_ret() or self.is_unconditional())
@@ -248,16 +265,12 @@ class CsInsn(object):
     dl = []
     if self.code_follows():
       #this piece of code leads implicitly to the next instruction
-      if debug_level >= 1:
-        print "[+] Added dest 0x{:x} -> 0x{:x}. (fall-through, from Capstone)".format(self.address, self.address+self.size())
       dl.append((self.address+self.size(),DESTTYPE.implicit))
 
     if self.is_jump() or self.is_call():
       #if we take a PTR and not a MEM or REG operand (TODO: better support for MEM operands)
       #TODO: shouldn't be x86 specific
       if (self.i.operands[0].type == capstone.CS_OP_IMM):
-        if debug_level >= 1:
-          print "[+] Added dest 0x{:x} -> 0x{:x}. (immediate, from Capstone)".format(self.address, self.i.operands[0].value.imm)
         dl.append((self.i.operands[0].value.imm,self.dtype)) #the target of the jump/call
 
     return dl
