@@ -7,7 +7,6 @@ if qira_config.WITH_BAP:
   from bap import adt, arm, asm, bil
   from bap.adt import Visitor, visit
   from binascii import hexlify
-  debug_level = 0 #set to 0 to remove dest prints. we should set this elsewhere
 
 __all__ = ["Tags", "Function", "Block", "Instruction", "DESTTYPE","ABITYPE"]
 
@@ -34,7 +33,6 @@ class BapInsn(object):
     if len(raw) == 0:
       raise ValueError("Empty memory at {0:#x}".format(address))
     arch = 'armv7' if arch == 'arm' else arch
-
     insns = list(bap.disasm(raw,
                             addr=address,
                             arch=arch,
@@ -46,9 +44,6 @@ class BapInsn(object):
 
     self.regs_read, self.regs_write = accesses(self.insn.bil)
     self.jumps = jumps(self.insn.bil)
-    self.conceval = conceval(self.insn.bil)
-    #self.state_change = StateChange(Memory(0x1234),Register("RSP",15))
-    #print "got conceval, reads: {}, writes: {}".format(self.conceval.reads,self.conceval.writes)
 
     self.dtype = None
     if self.is_call():
@@ -63,24 +58,18 @@ class BapInsn(object):
     if self.code_follows():
       dests.append((self.insn.addr + self.insn.size,
                     DESTTYPE.implicit))
+
     if self.insn.bil is not None:
       for (jmp,dtype) in self.jumps:
         if isinstance(jmp.arg, bil.Int):
-          if debug_level >= 1:
-            print "[+] Added dest 0x{:x} -> 0x{:x}. (from BIL)".format(address, jmp.arg.value)
-          #fixed a bug here as the jump visitor doesn't handle calls
-          #this isn't in the ADT. we can fix it here, but is this the best thing to do?
-          dests.append((jmp.arg.value, self.dtype if self.dtype == DESTTYPE.call else dtype))
+          if self.is_call():
+            dtype = DESTTYPE.call
+          dests.append((jmp.arg.value, dtype))
 
     elif self.is_jump() or self.is_call():
       dst = self.insn.operands[0]
       if isinstance(dst, asm.Imm):
-        dst_tmp = address + calc_offset(dst.arg, arch)
-        if arch in ["x86","x86-64"]: #jump after instruction on x86, bap should tell us this
-          dst_tmp += self.insn.size
-        if debug_level >= 1:
-          print "[+] Added dest 0x{:x} -> 0x{:x}. (from disassembly)".format(address, dst_tmp)
-        dests.append((dst_tmp, self.dtype))
+        dests.append((dst.arg + address, self.dtype))
 
     if self.is_ret():
       self._dests = []
@@ -88,15 +77,13 @@ class BapInsn(object):
       self._dests = dests
 
   def __str__(self):
-    #if self.insn.bil is not None:
-    #  return "\n".join(str(x) for x in self.insn.bil)
     return self.insn.asm
 
   def is_jump(self):
     if self.insn.bil is None:
       return self.insn.has_kind(asm.Branch)
     else:
-      return len(self.jumps) != 0
+      return len(self.jumps) <> 0
 
   def is_ret(self):
     return self.insn.has_kind(asm.Return)
@@ -105,16 +92,30 @@ class BapInsn(object):
     return self.insn.has_kind(asm.Call)
 
   def is_ending(self):
-    return self.insn.has_kind(asm.Terminator)
+    if self.insn.bil is None:
+      return self.insn.has_kind(asm.Terminator)
+    else:
+      return self.is_jump and self.is_unconditional()
 
   def is_conditional(self):
-    return self.insn.has_kind(asm.Conditional_branch)
+    if self.insn.bil is None:
+      return self.insn.has_kind(asm.Conditional_branch)
+    else:
+      for (_, dtype) in self.jumps:
+        if dtype == DESTTYPE.cjump:
+          return True
+      return False
 
   def is_unconditional(self):
-    return self.insn.has_kind(asm.Unconditional_branch)
+    if self.insn.bil is None:
+      return self.insn.has_kind(asm.Unconditional_branch)
+    else:
+      if len(self.jumps) == 0:
+        return False
+      return not self.is_conditional()
 
   def code_follows(self):
-    return not (self.is_ret() or self.is_unconditional())
+    return self.is_call() or not (self.is_ret() or self.is_unconditional())
 
   def size(self):
     return self.insn.size
@@ -122,12 +123,14 @@ class BapInsn(object):
   def dests(self):
     return self._dests
 
+
 def exists(cont,f):
   try:
     r = (x for x in cont if f(x)).next()
     return True
   except StopIteration:
     return False
+
 
 if qira_config.WITH_BAP:
   class Jmp_visitor(Visitor):
@@ -159,14 +162,6 @@ if qira_config.WITH_BAP:
     def visit_Var(self, var):
         self.reads.append(var.name)
 
-  class Conceval_visitor(Visitor):
-    def __init__(self):
-      self.info = []
-
-    def visit_Move(self, stmt):
-      self.info.append(stmt.arg)
-      self.run(stmt.expr)
-
   def jumps(bil):
     return visit(Jmp_visitor(), bil).jumps
 
@@ -174,42 +169,6 @@ if qira_config.WITH_BAP:
     r = visit(Access_visitor(), bil)
     return (r.reads, r.writes)
 
-  def conceval(bil):
-    r = visit(Conceval_visitor(), bil)
-    return r
-
-  #we could use ctypes here, but then we'd need an import
-  def calc_offset(offset, arch):
-    if arch in ['aarch64', 'x86-64']:
-      if (offset >> 63) & 1 == 1:
-        #negative
-        offset_fixed = -(0xFFFFFFFFFFFFFFFF-offset+1)
-      else:
-        offset_fixed = offset
-    else:
-      #this is bad; we seem to get 64bit offsets sometimes from bap
-      #use an assert here to catch errors instead
-      offset = offset & 0xFFFFFFFF
-      if (offset >> 31) & 1 == 1:
-        offset_fixed = -(0xFFFFFFFF-offset+1)
-      else:
-        offset_fixed = offset
-    return offset_fixed
-
-  def test_calc_offset():
-    expected = {(0xFFFFFFFF, "x86"): -1,
-                (0xFFFFFFFE, "x86"): -2,
-                (0xFFFFFFFF, "x86-64"): 0xFFFFFFFF,
-                (0xFFFFFFFF, "aarch64"): 0xFFFFFFFF,
-                (0xFFFFFFFFFFFFFFFF, "x86-64"): -1,
-                (0xFFFFFFFFFFFFFFFE, "x86-64"): -2}
-    for k,v in expected.iteritems():
-      v_prime = calc_offset(*k)
-      if v_prime != v:
-        k_fmt = (k[0],hex(k[1]),k[2])
-        print "{0} -> {1:x} expected, got {0} -> {2:x}".format(k_fmt,v,v_prime)
-
-  #test_calc_offset()
 
 # Instruction class
 class CsInsn(object):
@@ -306,16 +265,12 @@ class CsInsn(object):
     dl = []
     if self.code_follows():
       #this piece of code leads implicitly to the next instruction
-      if debug_level >= 1:
-        print "[+] Added dest 0x{:x} -> 0x{:x}. (fall-through, from Capstone)".format(self.address, self.address+self.size())
       dl.append((self.address+self.size(),DESTTYPE.implicit))
 
     if self.is_jump() or self.is_call():
       #if we take a PTR and not a MEM or REG operand (TODO: better support for MEM operands)
       #TODO: shouldn't be x86 specific
       if (self.i.operands[0].type == capstone.CS_OP_IMM):
-        if debug_level >= 1:
-          print "[+] Added dest 0x{:x} -> 0x{:x}. (immediate, from Capstone)".format(self.address, self.i.operands[0].value.imm)
         dl.append((self.i.operands[0].value.imm,self.dtype)) #the target of the jump/call
 
     return dl
