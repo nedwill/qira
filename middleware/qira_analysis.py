@@ -378,7 +378,6 @@ def analyse_calls(program,flow):
           func.abi = abi
         func.nargs = max(nargs,func.nargs)
 
-
 def display_call_args(instr,trace,clnum):
   program = trace.program
   regs = trace.db.fetch_registers(clnum)

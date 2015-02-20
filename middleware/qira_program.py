@@ -254,8 +254,8 @@ class Program:
       rret[ghex(k)] = ret[k]
     return rret
 
-  def add_trace(self, fn, i):
-    self.traces[i] = Trace(fn, i, self, self.tregs[1], len(self.tregs[0]), self.tregs[2])
+  def add_trace(self, fn, i, run_analysis=True):
+    self.traces[i] = Trace(fn, i, self, self.tregs[1], len(self.tregs[0]), self.tregs[2], run_analysis=run_analysis)
     return self.traces[i]
 
   def execqira(self, args=[], shouldfork=True):
@@ -274,7 +274,7 @@ class Program:
   
 
 class Trace:
-  def __init__(self, fn, forknum, program, r1, r2, r3):
+  def __init__(self, fn, forknum, program, r1, r2, r3, run_analysis=True):
     self.forknum = forknum
     self.program = program
     self.db = qiradb.Trace(fn, forknum, r1, r2, r3)
@@ -292,7 +292,8 @@ class Trace:
     self.strace = []
     self.mapped = []
 
-    threading.Thread(target=self.analysis_thread).start()
+    if run_analysis:
+      threading.Thread(target=self.analysis_thread).start()
 
   def fetch_raw_memory(self, clnum, address, ln):
     return ''.join(map(chr, self.fetch_memory(clnum, address, ln).values()))
