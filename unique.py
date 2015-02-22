@@ -37,6 +37,21 @@ def get_unique_instructions(trace, program):
 fn = sys.argv[1]
 
 #from my static testing code
+######
+class bcolors(object):
+  HEADER = '\033[95m'
+  OKBLUE = '\033[94m'
+  OKGREEN = '\033[92m'
+  WARNING = '\033[93m'
+  FAIL = '\033[91m'
+  ENDC = '\033[0m'
+
+ok_green  = bcolors.OKGREEN + "[+]" + bcolors.ENDC
+ok_blue   = bcolors.OKBLUE  + "[+]" + bcolors.ENDC
+star_blue = bcolors.OKBLUE  + "[*]" + bcolors.ENDC
+warn      = bcolors.WARNING + "[-]" + bcolors.ENDC
+fail      = bcolors.FAIL    + "[!]" + bcolors.ENDC
+
 def get_file_list(loc, recursive=True):
   fns = []
   if recursive:
@@ -51,11 +66,13 @@ def get_file_list(loc, recursive=True):
       if not os.path.isdir(fn):
         fns.append(fn)
   return fns
+######
 
-file_list = get_file_list(sys.argv[1])[:2]
+file_list = get_file_list(sys.argv[1])
 
 d = {}
-for fn in file_list:
+for i,fn in enumerate(file_list):
+  print "{} [{}/{}] files initally processed...".format(star_blue, i+1, len(file_list))
   ### tim stuff
   program = qira_program.Program(fn)
   program.clear()
@@ -68,13 +85,48 @@ for fn in file_list:
   ###
   short_fn = fn.split("/")[-1]
   d[short_fn] = get_unique_instructions(trace, program)
-print d
+#print d
 
+#put all elements in a start set
+#while entries remain:
+#pick entry with largest set
+#  insert it
+#  do set difference on all remaining sets, removing those that become empty
+
+d_orig = d
 #weird unpacking here. can probably do better
-all_elements = set.union(*[v for (_,v) in d.iteritems()])
-print
-print "all"
-print all_elements
+all_elements = set.union(*[v for (_,v) in d_orig.iteritems()])
+#use this to check that everything is hit at the end
 
-print "intersection"
-print set.intersection(*[v for (_,v) in d.iteritems()])
+def get_largest_name(d):
+  assert len(d) > 0
+  current_max_fn = None
+  current_max_uniq_ins = 0
+  for fn,unique_ins_set in d.iteritems():
+    current_uniq_ins = len(unique_ins_set)
+    if current_uniq_ins > current_max_uniq_ins:
+      current_max_fn = fn
+      current_max_uniq_ins = current_uniq_ins
+  assert type(current_max_fn) is str #we set the fn name
+  return current_max_fn
+
+min_set = set()
+while len(d) > 0:
+  print "{} {} files remaining in min_set selection...".format(star_blue, len(d))
+  largest_name = get_largest_name(d)
+  min_set.add(largest_name)
+  largest_elements = d[largest_name]
+  d_new = {}
+  for k,v in d.iteritems():
+    if k == largest_name:
+      continue
+    d_new[k] = v.difference(largest_elements)
+  d = d_new
+
+#check that we have all the instructions in the min_set
+new_all_elements = set.union(*[d_orig[k] for k in min_set])
+assert all_elements == new_all_elements
+
+print "min_set identified!"
+print "original input",d_orig.keys()
+print "minimized input",min_set
