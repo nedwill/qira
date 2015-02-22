@@ -42,6 +42,7 @@ class BapInsn(object):
       raise ValueError("Invalid instruction for {1} at {2:#x}[{3}]:\n{0}".
                        format(hexlify(raw), arch, address, len(raw)))
     self.insn = insns[0]
+    self.raw = raw[:self.insn.size]
 
     self.regs_read, self.regs_write = accesses(self.insn.bil)
     self.jumps = jumps(self.insn.bil)
