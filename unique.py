@@ -52,7 +52,7 @@ def get_file_list(loc, recursive=True):
         fns.append(fn)
   return fns
 
-file_list = get_file_list(sys.argv[1])[:5]
+file_list = get_file_list(sys.argv[1])[:2]
 
 d = {}
 for fn in file_list:
@@ -69,3 +69,12 @@ for fn in file_list:
   short_fn = fn.split("/")[-1]
   d[short_fn] = get_unique_instructions(trace, program)
 print d
+
+#weird unpacking here. can probably do better
+all_elements = set.union(*[v for (_,v) in d.iteritems()])
+print
+print "all"
+print all_elements
+
+print "intersection"
+print set.intersection(*[v for (_,v) in d.iteritems()])
