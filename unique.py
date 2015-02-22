@@ -10,6 +10,7 @@ import time
 import os
 import qira_program, qira_analysis, qira_config
 from glob import glob
+import gc
 
 if len(sys.argv) != 2:
     print "usage: {} [directory]".format(sys.argv[0])
@@ -69,6 +70,7 @@ def get_file_list(loc, recursive=True):
 ######
 
 file_list = get_file_list(sys.argv[1])
+#file_list = ["/vagrant/qira/tests_auto/binary-autogen/procselfmaps_x86_dwarf"]
 
 d = {}
 for i,fn in enumerate(file_list):
@@ -85,6 +87,9 @@ for i,fn in enumerate(file_list):
   ###
   short_fn = fn.split("/")[-1]
   d[short_fn] = get_unique_instructions(trace, program)
+  del trace    #remove references to trace and program, then gc
+  del program  #this way we don't OOM if we don't have to
+  gc.collect()
 #print d
 
 #put all elements in a start set
