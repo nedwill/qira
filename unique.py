@@ -120,7 +120,9 @@ while len(d) > 0:
   for k,v in d.iteritems():
     if k == largest_name:
       continue
-    d_new[k] = v.difference(largest_elements)
+    v_new = v.difference(largest_elements)
+    if len(v_new) > 0:
+      d_new[k] = v_new
   d = d_new
 
 #check that we have all the instructions in the min_set
