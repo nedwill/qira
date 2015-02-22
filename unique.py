@@ -17,7 +17,8 @@ if len(sys.argv) != 2:
     sys.exit()
 
 #based on get_instruction_flow from qira_analysis
-def get_unique_instructions(trace, program):
+#arm flag tells us whether to disasm or not, autodetect from ELF?
+def get_unique_instructions(trace, program, arm=True):
   start = time.time()
   ret = set()
   for i in range(trace.db.get_minclnum(), trace.db.get_maxclnum()):
@@ -26,9 +27,12 @@ def get_unique_instructions(trace, program):
       continue
 
     # this will trigger the disassembly
-    instr = program.static[r[0]['address']]['instruction']
+    if arm:
+      instr_hex = program.static.memory(r[0]['address'], 0x04) #no thumb support ATM
+    else:
+      instr_hex = program.static[r[0]['address']]['instruction'].raw.encode("hex")
     #print instr.raw.encode("hex")
-    ret.add(instr.raw.encode("hex"))
+    ret.add(instr_hex)
     if (time.time() - start) > 0.01:
       time.sleep(0.01)
       start = time.time()
@@ -70,13 +74,18 @@ def get_file_list(loc, recursive=True):
 ######
 
 file_list = get_file_list(sys.argv[1])
-#file_list = ["/vagrant/qira/tests_auto/binary-autogen/procselfmaps_x86_dwarf"]
+
+from elftools.common.exceptions import ELFError
 
 d = {}
 for i,fn in enumerate(file_list):
+  short_fn = fn.split("/")[-1]
   print "{} [{}/{}] files initally processed...".format(star_blue, i+1, len(file_list))
-  ### tim stuff
-  program = qira_program.Program(fn)
+  try:
+    program = qira_program.Program(fn)
+  except ELFError:
+    print "{} skipping non-ELF `{}'...".format(warn, short_fn)
+    continue
   program.clear()
   program.execqira()
   time.sleep(.1) # we have to wait for the trace :/
@@ -84,8 +93,6 @@ for i,fn in enumerate(file_list):
   trace = program.traces[0]
   trace.read_strace_file()
   time.sleep(1) # we have to wait for qiradb :/
-  ###
-  short_fn = fn.split("/")[-1]
   d[short_fn] = get_unique_instructions(trace, program)
   del trace    #remove references to trace and program, then gc
   del program  #this way we don't OOM if we don't have to
