@@ -28,9 +28,13 @@ def get_unique_instructions(trace, program, arm=True):
 
     # this will trigger the disassembly
     if arm:
-      instr_hex = program.static.memory(r[0]['address'], 0x04) #no thumb support ATM
+      if program.static[r[0]['address']]['arch'] == "thumb":
+        instr_hex = program.static.memory(r[0]['address'], 0x02)
+      else:
+        instr_hex = program.static.memory(r[0]['address'], 0x04)
     else:
       instr_hex = program.static[r[0]['address']]['instruction'].raw.encode("hex")
+    #print "arch",program.static[r[0]['address']]['arch']
     #print instr.raw.encode("hex")
     ret.add(instr_hex)
     if (time.time() - start) > 0.01:
@@ -38,6 +42,45 @@ def get_unique_instructions(trace, program, arm=True):
       start = time.time()
 
   return ret
+
+#modified to be used here from qira_program so it doesn't trigger disasm
+def read_asm_file(self):
+  if os.name == "nt":
+    return
+  dat = self.qira_asm_file.read()
+  if len(dat) == 0:
+    return
+  cnt = 0
+  for d in dat.split("\n"):
+    thumb = False
+    if len(d) == 0:
+      continue
+    # hacks
+    try:
+      if self.fb == 0x28:
+        #thumb bit in front
+        addr = int(d.split(" ")[0][1:].strip(":"), 16)
+      else:
+        addr = int(d.split(" ")[0].strip(":"), 16)
+    except:
+      continue
+    if self.fb == 0x28:
+      thumb_flag = d[0]
+      if thumb_flag == 't':
+        thumb = True
+        # override the arch since it's thumb
+        self.static[addr]['arch'] = "thumb"
+      elif thumb_flag == 'n':
+        thumb = False
+      else:
+        #print "*** Invalid thumb flag at beginning of instruction"
+        pass
+      inst = d[d.rfind("  ")+2:]
+    elif self.fb == 0xb7:   # aarch64
+      inst = d[d.rfind("     ")+5:]
+    else:
+      inst = d[d.find(":")+3:]
+    cnt += 1
 
 fn = sys.argv[1]
 
@@ -93,7 +136,12 @@ for i,fn in enumerate(file_list):
   trace = program.traces[0]
   trace.read_strace_file()
   time.sleep(1) # we have to wait for qiradb :/
+  #while not trace.db.did_update(): #is this better? from qira_analysis.py
+  #  time.sleep(0.1)
+  program.qira_asm_file = open("/tmp/qira_asm", "r")
+  read_asm_file(program)
   d[short_fn] = get_unique_instructions(trace, program)
+  print d
   del trace    #remove references to trace and program, then gc
   del program  #this way we don't OOM if we don't have to
   gc.collect()
@@ -144,3 +192,4 @@ assert all_elements == new_all_elements
 print "min_set identified!"
 print "original input",d_orig.keys()
 print "minimized input",min_set
+print "{} There was a total reduction from {} input files to {} input files.".format(ok_green, len(d_orig), len(min_set))
