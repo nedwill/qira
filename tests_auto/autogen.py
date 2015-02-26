@@ -15,7 +15,7 @@ SOURCE_DIRECTORY = "source-autogen/"
 DEST_DIRECTORY = "binary-autogen/"
 
 #If you're not on Ubuntu 14.04, these are up to you.
-ARM_GCC = "arm-linux-gnueabihf-gcc-4.8"
+ARM_GCC = "arm-linux-gnueabi-gcc-4.7"
 AARCH64_GCC = "aarch64-linux-gnu-gcc-4.8"
 PPC_GCC = "powerpc-linux-gnu-gcc-4.8"
 PPC64_GCC = "powerpc64le-linux-gnu-gcc-4.8"
@@ -44,7 +44,7 @@ def compiler_command(path,filename,this_arch,args):
   raw_filename = ".".join(filename.split(".")[:-1])
 
   if args.clang:
-    if this_arch not in [arch.x86,arch.x86_64]:
+    if this_arch not in [arch.x86,arch.x86_64,arch.arm]:
       #todo: fix this, clang should support all archs pretty easily
       print "clang doesn't support arch"
       return []
@@ -60,7 +60,9 @@ def compiler_command(path,filename,this_arch,args):
     command += [compiler,"-m64"]
     raw_filename += "_x86-64"
   elif this_arch == arch.arm:
-    command += [ARM_GCC, "-marm"]
+    command += [compiler, "-marm"]
+    if args.clang:
+      command += ["-target","arm-linux-gnueabi","-integrated-as"]
     raw_filename += "_arm"
   elif this_arch == arch.thumb:
     command += [ARM_GCC, "-mthumb"]
