@@ -141,7 +141,6 @@ for i,fn in enumerate(file_list):
   program.qira_asm_file = open("/tmp/qira_asm", "r")
   read_asm_file(program)
   d[short_fn] = get_unique_instructions(trace, program)
-  print d
   del trace    #remove references to trace and program, then gc
   del program  #this way we don't OOM if we don't have to
   gc.collect()
