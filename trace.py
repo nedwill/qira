@@ -14,33 +14,6 @@ import traceback
 import argparse
 from subprocess import call
 
-#based on get_instruction_flow from qira_analysis
-#arm flag tells us whether to disasm or not, autodetect from ELF?
-def get_unique_instructions(trace, program, arm=True):
-  start = time.time()
-  ret = set()
-  for i in range(trace.db.get_minclnum(), trace.db.get_maxclnum()):
-    r = trace.db.fetch_changes_by_clnum(i, 1)
-    if len(r) != 1:
-      continue
-
-    # this will trigger the disassembly
-    if arm:
-      if program.static[r[0]['address']]['arch'] == "thumb":
-        instr_hex = program.static.memory(r[0]['address'], 0x02)
-      else:
-        instr_hex = program.static.memory(r[0]['address'], 0x04)
-    else:
-      instr_hex = program.static[r[0]['address']]['instruction'].raw.encode("hex")
-    #print "arch",program.static[r[0]['address']]['arch']
-    #print instr.raw.encode("hex")
-    ret.add(instr_hex)
-    if (time.time() - start) > 0.01:
-      time.sleep(0.01)
-      start = time.time()
-
-  return ret
-
 #modified to be used here from qira_program so it doesn't trigger disasm
 def read_asm_file(self):
   if os.name == "nt":
@@ -121,13 +94,52 @@ def process_fn(program):
   program.add_trace(qira_config.TRACE_FILE_BASE+"0", 0, run_analysis=False)
   trace = program.traces[0]
   trace.read_strace_file()
-  time.sleep(1) # we have to wait for qiradb :/
-  #while not trace.db.did_update(): #is this better? from qira_analysis.py
-  #  time.sleep(0.1)
+  #time.sleep(1) # we have to wait for qiradb :/
+  while not trace.db.did_update(): #is this better? from qira_analysis.py
+    time.sleep(0.1)
   program.qira_asm_file = open("/tmp/qira_asm", "r")
   read_asm_file(program) #so we get thumb flag if arm
-  instructions = get_unique_instructions(trace, program)
-  return instructions
+  return program, trace
+
+def validate_bil(program):
+  program, trace = process_fn(program)
+  flow = qira_analysis.get_instruction_flow(trace, program, trace.db.get_minclnum(), trace.db.get_maxclnum())
+  errors, warnings = concrete_execution.validate_bil(program, flow)
+
+  def print_issue(i):
+    print str(i.__class__) + ":", issue.message
+    print "\tClnum: ", issue.clnum
+    print "\tInstrction: ", issue.insn
+    print "-"*70
+
+  for issue in errors+warnings:
+    print_issue(issue)
+
+#based on get_instruction_flow from qira_analysis
+#arm flag tells us whether to disasm or not, autodetect from ELF?
+def get_unique_instructions(program, arm=True):
+  program, trace = process_fn(program)
+  start = time.time()
+  ret = set()
+  for i in range(trace.db.get_minclnum(), trace.db.get_maxclnum()):
+    r = trace.db.fetch_changes_by_clnum(i, 1)
+    if len(r) != 1:
+      continue
+
+    # this will trigger the disassembly
+    if arm:
+      if program.static[r[0]['address']]['arch'] == "thumb":
+        instr_hex = program.static.memory(r[0]['address'], 0x02)
+      else:
+        instr_hex = program.static.memory(r[0]['address'], 0x04)
+    else:
+      instr_hex = program.static[r[0]['address']]['instruction'].raw.encode("hex")
+    ret.add(instr_hex)
+    if (time.time() - start) > 0.01:
+      time.sleep(0.01)
+      start = time.time()
+
+  return ret
 
 def get_largest_name(d):
   assert len(d) > 0
@@ -196,20 +208,20 @@ def get_min_set(folder_name):
     return (min_set, failed)
 
 def move_files(min_set, failed, dest_folder):
-    call(["mkdir", "-p", dest_folder])
-    print "move files called"
-    for fn in min_set | failed:
-        print "moving",fn
-        short_fn = fn.split("/")[-1]
-        dest = os.path.join(dest_folder,short_fn)
-        #print " ".join(["cp", fn, dest])
-        call(["cp", fn, dest])
+  call(["mkdir", "-p", dest_folder])
+  print "move files called"
+  for fn in min_set | failed:
+    print "moving",fn
+    short_fn = fn.split("/")[-1]
+    dest = os.path.join(dest_folder,short_fn)
+    #print " ".join(["cp", fn, dest])
+    call(["cp", fn, dest])
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Minimize test corpus to cover all instructions.")
-    parser.add_argument("input_folder", help="input folder")
-    parser.add_argument("output_folder", help="output folder")
-    args = parser.parse_args()
-    print args.input_folder, args.output_folder
-    min_set, failed = get_min_set(args.input_folder)
-    move_files(min_set, failed, args.output_folder)
+
+  parser = argparse.ArgumentParser(description="Minimize test corpus to cover all instructions.")
+  parser.add_argument("input_folder", help="input folder")
+  parser.add_argument("output_folder", help="output folder")
+  args = parser.parse_args()
+  min_set, failed = get_min_set(args.input_folder)
+  move_files(min_set, failed, args.output_folder)
