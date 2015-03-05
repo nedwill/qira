@@ -211,17 +211,14 @@ def validate_bil(program, flow):
 
   trace = program.traces[0]
   libraries = [(m[3],m[1]) for m in trace.mapped]
-
-  #TODO: Check archicture here.. and also add x86 support
-  arm_registers = ["R0","R1","R2","R3","R4","R5","R6","R7",
-                 "R8","R9","R10","R11","R12","SP","LR","PC"]
+  registers = program.tregs[0]
 
   errors = []
   warnings = []
 
   def new_state_for_clnum(clnum):
     initial_regs = trace.db.fetch_registers(clnum)
-    initial_vars = dict(zip(arm_registers, initial_regs))
+    initial_vars = dict(zip(registers, initial_regs))
     initial_mem_get = partial(trace.fetch_raw_memory, clnum)
     return State(initial_vars, initial_mem_get)
 
@@ -239,7 +236,11 @@ def validate_bil(program, flow):
         # this is bad.. fix this
         oldpc = state["PC"]
         state["PC"] += 8 #Qira PC is wrong
-        execute_bil_statements(bil_instrs, state)
+        try:
+          execute_bil_statements(bil_instrs, state)
+        except KeyError as e:
+          errors.append(Error(clnum, instr, "No BIL variable %s!" % str(e)))
+
         if state["PC"] == oldpc + 8:
           state["PC"] -= 4
 
@@ -252,7 +253,7 @@ def validate_bil(program, flow):
           continue
 
         error = False
-        correct_regs = dict(zip(arm_registers, trace.db.fetch_registers(clnum)))
+        correct_regs = dict(zip(registers, trace.db.fetch_registers(clnum)))
 
         for reg, correct in correct_regs.iteritems():
           if state[reg] != correct:
