@@ -1,6 +1,5 @@
 #!/usr/bin/env python2.7
 
-from model import calc_offset
 from bap import bil
 from functools import partial
 from model import BapInsn
@@ -63,6 +62,16 @@ class State:
   def __str__(self):
     return str(self.variables)
 
+def to_val(n, size=None):
+  if size is None:
+    if n.bit_length() > 33:
+      size = 64
+    else:
+      size = 32
+
+  if n < 0:
+    n = (1 << size) + n
+  return int(n & ((1 << size) - 1))
 
 def eval_bil_expr(expr, state):
   """
@@ -86,7 +95,7 @@ def eval_bil_expr(expr, state):
     elif isinstance(expr, bil.Var):
       return state[expr.name]
     elif isinstance(expr, bil.Int):
-      return calc_offset(expr.value, "arm") # fix this call
+      return to_val(expr.value, size=expr.size)
     elif isinstance(expr, bil.Let):
       tmp = state.get(expr.var.name, None)
       state[expr.var.name] = eval_expr(expr.value)
@@ -97,38 +106,39 @@ def eval_bil_expr(expr, state):
         state[expr.var.name] = tmp
       return result
     elif isinstance(expr, bil.PLUS):
-      return eval_expr(expr.lhs) + eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) + eval_expr(expr.rhs))
     elif isinstance(expr, bil.MINUS):
-      return eval_expr(expr.lhs) - eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) - eval_expr(expr.rhs))
     elif isinstance(expr, bil.TIMES):
-      return eval_expr(expr.lhs) * eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) * eval_expr(expr.rhs))
     elif isinstance(expr, bil.DIVIDE):
-      return eval_expr(expr.lhs) / eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) / eval_expr(expr.rhs))
     elif isinstance(expr, bil.SDIVIDE): # TODO
-      return eval_expr(expr.lhs) / eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) / eval_expr(expr.rhs))
     elif isinstance(expr, bil.MOD):
-      return eval_expr(expr.lhs) % eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) % eval_expr(expr.rhs))
     elif isinstance(expr, bil.SMOD): # TODO
-      return eval_expr(expr.lhs) + eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) + eval_expr(expr.rhs))
     elif isinstance(expr, bil.LSHIFT):
-      return eval_expr(expr.lhs) << eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) << eval_expr(expr.rhs))
     elif isinstance(expr, bil.RSHIFT):
       # logical right shift
+      # TODO: refactor
       shift = eval_expr(expr.rhs)
       var = eval_expr(expr.lhs)
-      if shift > 1:
+      if shift >= 1:
         var >>= 1
         var = var & 0x7fffffff
         var >>= (shift - 1)
-      return var
+      return to_val(var)
     elif isinstance(expr, bil.ARSHIFT):
-      return eval_expr(expr.lhs) >> eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) >> eval_expr(expr.rhs))
     elif isinstance(expr, bil.AND):
-      return eval_expr(expr.lhs) & eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) & eval_expr(expr.rhs))
     elif isinstance(expr, bil.OR):
-      return eval_expr(expr.lhs) | eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) | eval_expr(expr.rhs))
     elif isinstance(expr, bil.XOR):
-      return eval_expr(expr.lhs) ^ eval_expr(expr.rhs)
+      return to_val(eval_expr(expr.lhs) ^ eval_expr(expr.rhs))
     elif isinstance(expr, bil.EQ):
       return 1 if eval_expr(expr.lhs) == eval_expr(expr.rhs) else 0
     elif isinstance(expr, bil.NEQ):
@@ -181,6 +191,9 @@ def run_bil_instruction(st, state):
       execute_bil_statements(st.true, state)
     else:
       execute_bil_statements(st.false, state)
+  elif isinstance(st, bil.While):
+    while (eval_bil_expr(st.cond, state)):
+      execute_bil_statements(st.stmts, state)
 
 def execute_bil_statements(statements, state):
   """ Modifies the state based on the statements """
