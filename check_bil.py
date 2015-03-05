@@ -21,9 +21,9 @@ if __name__ == '__main__':
 
   d, failed = process_files(file_list, validate_bil)
 
-  print "{} Failed to process:"," ".join(fail, failed)
+  print "{} Failed to process:".format(fail)," ".join(failed)
 
   for fn,(errors, warnings) in d.iteritems():
     print "{} Issues found in {}:".format(warn, fn)
-    for issue in errors+warnings:
+    for issue in errors:#+warnings:
       print_issue(issue)

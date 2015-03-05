@@ -95,8 +95,8 @@ def process_program(program):
   trace = program.traces[0]
   trace.read_strace_file()
   time.sleep(1) # we have to wait for qiradb :/
-  while not trace.db.did_update(): #is this better? from qira_analysis.py
-    time.sleep(0.1)
+  #while not trace.db.did_update(): #is this better? from qira_analysis.py
+  #  time.sleep(0.1)
   program.qira_asm_file = open("/tmp/qira_asm", "r")
   read_asm_file(program) #so we get thumb flag if arm
   return program, trace
