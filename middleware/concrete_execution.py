@@ -167,7 +167,7 @@ def eval_bil_expr(expr, state):
     elif isinstance(expr, bil.Unknown):
       pass
     elif isinstance(expr, bil.Ite):
-      if eval_bil_expr(expr.cond):
+      if eval_expr(expr.cond):
         return eval_expr(expr.true)
       else:
         return eval_expr(expr.false)
