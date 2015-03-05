@@ -226,7 +226,10 @@ def validate_bil(program, flow):
 
   for (addr,data,clnum,ins) in flow:
     instr = program.static[addr]['instruction']
-    if isinstance(instr, BapInsn):
+    if not isinstance(instr, BapInsn):
+      errors.append(Error(clnum, instr, "Could not make BAP instruction for %s" % str(instr)))
+      state = new_state_for_clnum(clnum)
+    else:
       bil_instrs = instr.insn.bil
       if bil_instrs is None:
         errors.append(Error(clnum, instr, "No BIL for instruction %s" % str(instr)))
