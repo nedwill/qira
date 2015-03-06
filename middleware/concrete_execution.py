@@ -62,13 +62,7 @@ class State:
   def __str__(self):
     return str(self.variables)
 
-def to_val(n, size=None):
-  if size is None:
-    if n.bit_length() > 33:
-      size = 64
-    else:
-      size = 32
-
+def to_val(n, size=32):
   if n < 0:
     n = (1 << size) + n
   return int(n & ((1 << size) - 1))
@@ -152,9 +146,9 @@ def eval_bil_expr(expr, state):
     elif isinstance(expr, bil.SLE): # TODO
       return 1 if eval_expr(expr.lhs) <= eval_expr(expr.rhs) else 0
     elif isinstance(expr, bil.NEG):
-      return -eval_expr(expr.arg)
+      return to_val(-eval_expr(expr.arg))
     elif isinstance(expr, bil.NOT):
-      return ~eval_expr(expr.arg)
+      return to_val(~eval_expr(expr.arg))
     elif isinstance(expr, bil.HIGH):
       mask = (1 << expr.size) - 1
       shift = 32 - expr.size
@@ -172,37 +166,55 @@ def eval_bil_expr(expr, state):
       else:
         return eval_expr(expr.false)
     elif isinstance(expr, bil.Extract):
-      assert False, "Extract not yet implemented"
-      pass
+      val = eval_expr(expr.expr)
+      mask = (1 << (expr.high_bit - expr.low_bit)) - 1
+      shift = expr.low_bit
+      return to_val((val >> shift) & mask)
     elif isinstance(expr, bil.Concat):
-      assert False, "Concat not yet implemented"
-      pass
+      lhs = eval_expr(expr.lhs)
+      rhs = eval_expr(expr.rhs)
+      return to_val((lhs << 16) | rhs)
 
   return eval_expr(expr)
 
 def run_bil_instruction(st, state):
+  """
+  Modifies the state based on the statement.
+  Returns True if a jump was ran
+  """
+
+  hit_jump = False
   if isinstance(st, bil.Move):
     state[st.var.name] = eval_bil_expr(st.expr, state)
   elif isinstance(st, bil.Jmp):
     newpc = eval_bil_expr(st.arg, state)
     state["PC"] = newpc
+    hit_jump = True
   elif isinstance(st, bil.If):
     if eval_bil_expr(st.cond, state):
-      execute_bil_statements(st.true, state)
+      hit_jump = execute_bil_statements(st.true, state)
     else:
-      execute_bil_statements(st.false, state)
+      hit_jump = execute_bil_statements(st.false, state)
   elif isinstance(st, bil.While):
     while (eval_bil_expr(st.cond, state)):
-      execute_bil_statements(st.stmts, state)
+      hit_jump = hit_jump or execute_bil_statements(st.stmts, state)
+  return hit_jump
 
 def execute_bil_statements(statements, state):
-  """ Modifies the state based on the statements """
+  """
+  Modifies the state based on the statements.
+  Returns True if a jump was ran
+  """
+
+  hit_jump = False
 
   if not isinstance(statements, collections.Iterable):
     statements = [statements]
 
   for st in statements:
-    run_bil_instruction(st, state)
+    hit_jump = hit_jump or run_bil_instruction(st, state)
+
+  return hit_jump
 
 class Issue:
   def __init__(self, clnum, insn, message):
@@ -253,16 +265,16 @@ def validate_bil(program, flow):
         oldpc = state["PC"]
         state["PC"] += 8 #Qira PC is wrong
         try:
-          execute_bil_statements(bil_instrs, state)
+          jumped = execute_bil_statements(bil_instrs, state)
         except KeyError as e:
           errors.append(Error(clnum, instr, "No BIL variable %s!" % str(e)))
 
-        if state["PC"] == oldpc + 8:
+        if not jumped:
           state["PC"] -= 4
 
         validate = True
         PC = state["PC"]
-        if PC > 0xf0000000 or True in [PC >= base and PC <= base+size for (base,size) in libraries]:
+        if PC > 0xf0000000 or any([PC >= base and PC <= base+size for (base,size) in libraries]):
           # we are jumping into a library that we can't trace.. reset the state and continue
           warnings.append(Warning(clnum, instr, "Jumping into library. Cannot trace this"))
           state = new_state_for_clnum(clnum)
