@@ -3,6 +3,7 @@
 from bap import bil
 from functools import partial
 from model import BapInsn
+from bitvector import ConcreteBitVector
 import collections
 
 class Memory:
@@ -11,12 +12,14 @@ class Memory:
     self.memory = {} if initial is None else initial
 
   def get_mem(self, addr, size, little_endian=True):
+    addr = int(addr)
     result = "".join([self[address] for address in range(addr, addr+size)])
     if little_endian: result = result[::-1]
     return result
 
   def set_mem(self, addr, size, val, little_endian=True):
     for i in range(size):
+      addr = int(addr)
       shift = i if little_endian else size-i-1
       byteval = (val >> shift*8) & 0xff
       self[addr+i] = chr(byteval)
@@ -62,10 +65,6 @@ class State:
   def __str__(self):
     return str(self.variables)
 
-def to_val(n, size=32):
-  if n < 0:
-    n = (1 << size) + n
-  return int(n & ((1 << size) - 1))
 
 def eval_bil_expr(expr, state):
   """
@@ -80,7 +79,7 @@ def eval_bil_expr(expr, state):
       addr = eval_expr(expr.idx)
       size = expr.size
       mem = state.get_mem(addr, size / 8, isinstance(expr.endian, bil.LittleEndian))
-      return long(mem.encode('hex'), 16)
+      return ConcreteBitVector(size, int(mem.encode('hex'), 16))
     elif isinstance(expr, bil.Store):
       addr = eval_expr(expr.idx)
       val = eval_expr(expr.value)
@@ -89,7 +88,7 @@ def eval_bil_expr(expr, state):
     elif isinstance(expr, bil.Var):
       return state[expr.name]
     elif isinstance(expr, bil.Int):
-      return to_val(expr.value, size=expr.size)
+      return ConcreteBitVector(expr.size, expr.value)
     elif isinstance(expr, bil.Let):
       tmp = state.get(expr.var.name, None)
       state[expr.var.name] = eval_expr(expr.value)
@@ -100,39 +99,33 @@ def eval_bil_expr(expr, state):
         state[expr.var.name] = tmp
       return result
     elif isinstance(expr, bil.PLUS):
-      return to_val(eval_expr(expr.lhs) + eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) + eval_expr(expr.rhs)
     elif isinstance(expr, bil.MINUS):
-      return to_val(eval_expr(expr.lhs) - eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) - eval_expr(expr.rhs)
     elif isinstance(expr, bil.TIMES):
-      return to_val(eval_expr(expr.lhs) * eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) * eval_expr(expr.rhs)
     elif isinstance(expr, bil.DIVIDE):
-      return to_val(eval_expr(expr.lhs) / eval_expr(expr.rhs))
-    elif isinstance(expr, bil.SDIVIDE): # TODO
-      return to_val(eval_expr(expr.lhs) / eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) / eval_expr(expr.rhs)
+    elif isinstance(expr, bil.SDIVIDE):
+      return eval_expr(expr.lhs) / eval_expr(expr.rhs)
     elif isinstance(expr, bil.MOD):
-      return to_val(eval_expr(expr.lhs) % eval_expr(expr.rhs))
-    elif isinstance(expr, bil.SMOD): # TODO
-      return to_val(eval_expr(expr.lhs) + eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) % eval_expr(expr.rhs)
+    elif isinstance(expr, bil.SMOD):
+      return eval_expr(expr.lhs) % eval_expr(expr.rhs)
     elif isinstance(expr, bil.LSHIFT):
-      return to_val(eval_expr(expr.lhs) << eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) << eval_expr(expr.rhs)
     elif isinstance(expr, bil.RSHIFT):
-      # logical right shift
-      # TODO: refactor
       shift = eval_expr(expr.rhs)
       var = eval_expr(expr.lhs)
-      if shift >= 1:
-        var >>= 1
-        var = var & 0x7fffffff
-        var >>= (shift - 1)
-      return to_val(var)
+      return var.lrshift(shift)
     elif isinstance(expr, bil.ARSHIFT):
-      return to_val(eval_expr(expr.lhs) >> eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) >> eval_expr(expr.rhs)
     elif isinstance(expr, bil.AND):
-      return to_val(eval_expr(expr.lhs) & eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) & eval_expr(expr.rhs)
     elif isinstance(expr, bil.OR):
-      return to_val(eval_expr(expr.lhs) | eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) | eval_expr(expr.rhs)
     elif isinstance(expr, bil.XOR):
-      return to_val(eval_expr(expr.lhs) ^ eval_expr(expr.rhs))
+      return eval_expr(expr.lhs) ^ eval_expr(expr.rhs)
     elif isinstance(expr, bil.EQ):
       return 1 if eval_expr(expr.lhs) == eval_expr(expr.rhs) else 0
     elif isinstance(expr, bil.NEQ):
@@ -146,16 +139,13 @@ def eval_bil_expr(expr, state):
     elif isinstance(expr, bil.SLE): # TODO
       return 1 if eval_expr(expr.lhs) <= eval_expr(expr.rhs) else 0
     elif isinstance(expr, bil.NEG):
-      return to_val(-eval_expr(expr.arg))
+      return -eval_expr(expr.arg)
     elif isinstance(expr, bil.NOT):
-      return to_val(~eval_expr(expr.arg))
+      return ~eval_expr(expr.arg)
     elif isinstance(expr, bil.HIGH):
-      mask = (1 << expr.size) - 1
-      shift = 32 - expr.size
-      return (eval_expr(expr.expr) >> shift) & mask
+      return eval_expr(expr.expr).get_high_bits(expr.size)
     elif isinstance(expr, bil.LOW):
-      mask = (1 << expr.size) - 1
-      return eval_expr(expr.expr) & mask
+      return eval_expr(expr.expr).get_low_bits(expr.size)
     elif isinstance(expr, bil.Cast):
       return eval_expr(expr.expr)
     elif isinstance(expr, bil.Unknown):
@@ -167,13 +157,11 @@ def eval_bil_expr(expr, state):
         return eval_expr(expr.false)
     elif isinstance(expr, bil.Extract):
       val = eval_expr(expr.expr)
-      mask = (1 << (expr.high_bit - expr.low_bit)) - 1
-      shift = expr.low_bit
-      return to_val((val >> shift) & mask)
+      return val.get_bits(expr.low_bit, expr.high_bit)
     elif isinstance(expr, bil.Concat):
       lhs = eval_expr(expr.lhs)
       rhs = eval_expr(expr.rhs)
-      return to_val((lhs << 16) | rhs)
+      return lhs.concat(rhs)
 
   return eval_expr(expr)
 
@@ -232,17 +220,19 @@ def validate_bil(program, flow):
   r"""
   Runs the concrete executor, validating the the results are consistent with the trace.
   Returns a tuple of (Errors, Warnings)
+  Currently only supports ARM
   """
 
   trace = program.traces[0]
   libraries = [(m[3],m[1]) for m in trace.mapped]
   registers = program.tregs[0]
+  regsize = 8 * program.tregs[1]
 
   errors = []
   warnings = []
 
   def new_state_for_clnum(clnum):
-    initial_regs = trace.db.fetch_registers(clnum)
+    initial_regs = map(lambda x: ConcreteBitVector(regsize, x), trace.db.fetch_registers(clnum))
     initial_vars = dict(zip(registers, initial_regs))
     initial_mem_get = partial(trace.fetch_raw_memory, clnum)
     return State(initial_vars, initial_mem_get)
@@ -290,7 +280,7 @@ def validate_bil(program, flow):
             state[reg] = correct
 
         for (addr, val) in state.memory.items():
-          realval = trace.fetch_raw_memory(clnum, addr, 1)
+          realval = trace.fetch_raw_memory(clnum, int(addr), 1)
           if val != realval:
             error = True
             errors.append(Error(clnum, instr, "Value at address %x is wrong! (%x != %x)." % (addr, ord(val), ord(realval))))
