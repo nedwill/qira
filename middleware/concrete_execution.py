@@ -47,20 +47,25 @@ class State:
   def __getitem__(self, name):
     if isinstance(name, str):
       return self.variables[name]
-    else:
-      return self.memory[name]
+    elif isinstance(name, int):
+      return self.memory(name)
+    elif isinstance(name, ConcreteBitVector):
+      return self.memory(int(name))
 
   def __setitem__(self, name, val):
     if isinstance(name, str):
       self.variables[name] = val
-    elif isinstance(name, int):
-      self.memory[name] = val
-    elif isinstance(name, ConcreteBitVector):
+    else:
       self.memory[int(name)] = val
 
   def __str__(self):
     return str(self.variables)
 
+class VariableException(Exception):
+  pass
+
+class MemoryException(Exception):
+  pass
 
 class ConcreteExecutor(adt.Visitor):
   def __init__(self, state, pc):
@@ -71,6 +76,8 @@ class ConcreteExecutor(adt.Visitor):
   def visit_Load(self, op):
     addr = self.run(op.idx)
     mem = self.state.get_mem(addr, op.size / 8, isinstance(op.endian, bil.LittleEndian))
+    if len(mem) == 0:
+      raise MemoryException(addr)
     return ConcreteBitVector(op.size, int(mem.encode('hex'), 16))
 
   def visit_Store(self, op):
@@ -80,7 +87,10 @@ class ConcreteExecutor(adt.Visitor):
     return op.mem
 
   def visit_Var(self, op):
-    return self.state[op.name]
+    try:
+      return self.state[op.name]
+    except KeyError as e:
+      raise VariableException(op.name)
 
   def visit_Int(self, op):
     return ConcreteBitVector(op.size, op.value)
@@ -108,18 +118,21 @@ class ConcreteExecutor(adt.Visitor):
     return self.run(op.lhs).concat(self.run(op.rhs))
 
   def visit_Move(self, op):
-    self.state[op.var.name] = self.run(op.expr)
+    if isinstance(op.var.type, bil.Imm):
+      self.state[op.var.name] = ConcreteBitVector(op.var.type.size, int(self.run(op.expr)))
+    else:
+      self.run(op.expr) # no need to store Mems
 
   def visit_Jmp(self, op):
     self.jumped = True
     self.state[self.pc] = self.run(op.arg)
 
   def visit_While(self, op):
-    while self.run(op.cond):
+    while self.run(op.cond) == 1:
       adt.visit(self, op.stmts)
 
   def visit_If(self, op):
-    if self.run(op.cond):
+    if self.run(op.cond) == 1:
       adt.visit(self, op.true)
     else:
       adt.visit(self, op.false)
@@ -164,22 +177,22 @@ class ConcreteExecutor(adt.Visitor):
     return self.run(op.lhs) ^ self.run(op.rhs)
 
   def visit_EQ(self, op):
-    return 1 if self.run(op.lhs) == self.run(op.rhs) else 0
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) == self.run(op.rhs) else 0)
 
   def visit_NEQ(self, op):
-    return 1 if self.run(op.lhs) != self.run(op.rhs) else 0
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) != self.run(op.rhs) else 0)
 
   def visit_LT(self, op):
-    return 1 if self.run(op.lhs) < self.run(op.rhs) else 0
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) < self.run(op.rhs) else 0)
 
   def visit_LE(self, op):
-    return 1 if self.run(op.lhs) <= self.run(op.rhs) else 0
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) <= self.run(op.rhs) else 0)
 
   def visit_SLT(self, op):
-    return 1 if self.run(op.lhs) < self.run(op.rhs) else 0
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) < self.run(op.rhs) else 0)
 
   def visit_SLE(self, op):
-    return 1 if self.run(op.lhs) <= self.run(op.rhs) else 0
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) <= self.run(op.rhs) else 0)
 
   def visit_NEG(self, op):
     return -self.run(op.arg)
@@ -247,13 +260,15 @@ def validate_bil(program, flow):
       else:
 
         # this is bad.. fix this
-        oldpc = state["PC"]
         state["PC"] += 8 #Qira PC is wrong
         executor = ConcreteExecutor(state, "PC")
+
         try:
           adt.visit(executor, bil_instrs)
-        except KeyError as e:
-          errors.append(Error(clnum, instr, "No BIL variable %s!" % str(e)))
+        except VariableException as e:
+          errors.append(Error(clnum, instr, "No BIL variable %s!" % str(e.args[0])))
+        except MemoryException as e:
+          errors.append(Error(clnum, instr, "Used invalid address %x." % e.args[0]))
 
         if not executor.jumped:
           state["PC"] -= 4
@@ -267,7 +282,7 @@ def validate_bil(program, flow):
           continue
 
         error = False
-        correct_regs = dict(zip(registers, trace.db.fetch_registers(clnum)))
+        correct_regs = new_state_for_clnum(clnum).variables
 
         for reg, correct in correct_regs.iteritems():
           if state[reg] != correct:
@@ -277,7 +292,11 @@ def validate_bil(program, flow):
 
         for (addr, val) in state.memory.items():
           realval = trace.fetch_raw_memory(clnum, addr, 1)
-          if val != realval:
+          if len(realval) == 0 or len(val) == 0:
+            errors.append(Error(clnum, instr, "Used invalid address %x." % addr))
+            # this is unfixable, reset state
+            state = new_state_for_clnum(clnum)
+          elif val != realval:
             error = True
             errors.append(Error(clnum, instr, "Value at address %x is wrong! (%x != %x)." % (addr, ord(val), ord(realval))))
             state[addr] = realval
