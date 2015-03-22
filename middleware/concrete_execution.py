@@ -162,10 +162,10 @@ class ConcreteExecutor(adt.Visitor):
     return self.run(op.lhs) << self.run(op.rhs)
 
   def visit_RSHIFT(self, op):
-    return self.run(op.lhs).lrshift(self.run(op.rhs))
+    return self.run(op.lhs) >> self.run(op.rhs)
 
   def visit_ARSHIFT(self, op):
-    return self.run(op.lhs) >> self.run(op.rhs)
+    return self.run(op.lhs).arshift(self.run(op.rhs))
 
   def visit_AND(self, op):
     return self.run(op.lhs) & self.run(op.rhs)
@@ -189,10 +189,10 @@ class ConcreteExecutor(adt.Visitor):
     return ConcreteBitVector(1, 1 if self.run(op.lhs) <= self.run(op.rhs) else 0)
 
   def visit_SLT(self, op):
-    return ConcreteBitVector(1, 1 if self.run(op.lhs) < self.run(op.rhs) else 0)
+    return ConcreteBitVector(1, 1 if self.run(op.lhs).slt(self.run(op.rhs)) else 0)
 
   def visit_SLE(self, op):
-    return ConcreteBitVector(1, 1 if self.run(op.lhs) <= self.run(op.rhs) else 0)
+    return ConcreteBitVector(1, 1 if self.run(op.lhs).sle(self.run(op.rhs)) else 0)
 
   def visit_NEG(self, op):
     return -self.run(op.arg)
@@ -239,9 +239,14 @@ def validate_bil(program, flow):
   errors = []
   warnings = []
 
-  def new_state_for_clnum(clnum):
-    initial_regs = map(lambda x: ConcreteBitVector(regsize, x), trace.db.fetch_registers(clnum))
-    initial_vars = dict(zip(registers, initial_regs))
+  def new_state_for_clnum(clnum, include_flags=True):
+    flags = ["ZF", "CF", "NF", "VF"] if include_flags else []
+    varnames = registers + flags
+    initial_regs = trace.db.fetch_registers(clnum)
+    flagvalues = [0, 0, 0, 0] if include_flags else []
+    varvals = initial_regs + flagvalues
+    varvals = map(lambda x: ConcreteBitVector(regsize, x), varvals)
+    initial_vars = dict(zip(varnames, varvals))
     initial_mem_get = partial(trace.fetch_raw_memory, clnum)
     return State(initial_vars, initial_mem_get)
 
@@ -282,7 +287,7 @@ def validate_bil(program, flow):
           continue
 
         error = False
-        correct_regs = new_state_for_clnum(clnum).variables
+        correct_regs = new_state_for_clnum(clnum, include_flags=False).variables
 
         for reg, correct in correct_regs.iteritems():
           if state[reg] != correct:

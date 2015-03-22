@@ -23,6 +23,11 @@ class BitVector(object):
   def get_size(self):
     return
 
+  @abc.abstractmethod
+  def signed(self):
+    return
+
+
   """ Operations """
 
   @abc.abstractmethod
@@ -82,7 +87,7 @@ class BitVector(object):
     return
 
   @abc.abstractmethod
-  def lrshift(self, shift):
+  def arshift(self, shift):
     return
 
   """ Comparison operations """
@@ -109,6 +114,14 @@ class BitVector(object):
 
   @abc.abstractmethod
   def ge(self, other):
+    return
+
+  @abc.abstractmethod
+  def slt(self, other):
+    return
+
+  @abc.abstractmethod
+  def sle(self, other):
     return
 
   """ Overloading """
@@ -197,6 +210,13 @@ class ConcreteBitVector(BitVector):
 
   def get_size(self):
     return self.size
+
+  def signed(self):
+    mask = (1 << (self.get_size() - 1))
+    if self.value & mask:
+      return -(2**self.get_size() - self.value)
+    else:
+      return self.value
 
   """ Operations """
 
@@ -304,21 +324,18 @@ class ConcreteBitVector(BitVector):
       value = self.value >> other
     return ConcreteBitVector(size, value)
 
-  def lrshift(self, other):
-    size = self.size
+  def arshift(self, other):
     if isinstance(other, ConcreteBitVector):
       otherval = other.value
     else:
       otherval = other
+    highbit = (self.value & (1 << (self.size - 1))) >> (self.size - 1)
+    mask = ((1 << otherval) - 1) * highbit #111.. if hb == 1, 000.. otherwise
+    mask <<= (self.size - otherval) # shift to high bits of bitvector
 
-    value = self.value
-    if otherval >= 1:
-      value >>= 1
-      bitmask = (1 << (self.size - 1)) - 1
-      value &= bitmask
-      value >>= (otherval - 1)
-
-    return ConcreteBitVector(size, value)
+    newval = self.value >> otherval
+    newval |= mask # set the high bits correctly
+    return ConcreteBitVector(self.size, newval)
 
   """ Comparison operations """
 
@@ -357,6 +374,18 @@ class ConcreteBitVector(BitVector):
       return self.value >= other.value
     else:
       return self.value >= other
+
+  def slt(self, other):
+    if isinstance(other, ConcreteBitVector):
+      return self.signed() < other.signed()
+    else:
+      return self.signed() < other
+
+  def sle(self, other):
+    if isinstance(other, ConcreteBitVector):
+      return self.signed() <= other.signed()
+    else:
+      return self.signed() <= other
 
   def __str__(self):
       return str(self.value)
