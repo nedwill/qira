@@ -356,6 +356,11 @@ class Trace:
               except:
                 f = open(files[fil])
               alldat = f.read()
+
+              if fxn == "mmap2":
+                off = 4096*off # offset argument is in terms of pages for mmap2()
+                # is it safe to assume 4096 byte pages?
+
               st = "*** mapping %s %s sz:0x%x off:0x%x @ 0x%X" % (sha1(alldat).hexdigest(), files[fil], sz, off, return_code)
               print st,
               dat = alldat[off:off+sz]
@@ -380,6 +385,7 @@ class Trace:
         self.analysisready = False
         minclnum = self.db.get_minclnum()
         maxclnum = self.db.get_maxclnum()
+        self.program.read_asm_file()
         self.flow = qira_analysis.get_instruction_flow(self, self.program, minclnum, maxclnum)
         self.dmap = qira_analysis.get_hacked_depth_map(self.flow, self.program)
         qira_analysis.analyse_calls(self.program, self.flow)
