@@ -1,5 +1,6 @@
 from trace import *
 import concrete_execution
+from concrete_execution import Issue, Warning, Error
 
 def validate_bil(program):
   program, trace = process_program(program)
@@ -8,12 +9,11 @@ def validate_bil(program):
   return errors, warnings
 
 def print_issue(i):
-  print str(i.__class__) + ":", issue.message
-  print "\tClnum: ", issue.clnum
-  print "\tInstruction: ", issue.insn
+  print str(i.__class__) + ":", i.message
+  print "\tClnum: ", i.clnum
+  print "\tBIL/Ins: ", str(i.insn)
   print "-"*70
 
-@processify
 def validate_process(fn):
   try:
     program = qira_program.Program(fn)
@@ -29,10 +29,11 @@ def process_files_stop(file_list):
     print "{} [{}/{}] done, checking {}...".format(star_blue, i+1, len(file_list), short_fn)
     try:
       errors, warnings = validate_process(fn)
+      gc.collect()
       if len(errors) > 0:
         print "{} Issues found in {}:".format(warn, fn)
-        for issue in errors:
-          print_issue(issue)
+        for error in errors:
+          print_issue(error)
         exit()
     except Exception as exn:
       print "{} processing {} failed".format(fail, short_fn), type(exn).__name__, exn
