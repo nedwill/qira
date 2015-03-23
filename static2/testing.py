@@ -62,6 +62,7 @@ def test_files(fns,quiet=False,profile=False,runtime=False):
       continue
 
     engine_functions = {}
+    exception_happened = False
     for engine in ENGINES:
       try:
         this_engine = Static(fn, debug=0, static_engine=engine) #no debug output
@@ -84,9 +85,10 @@ def test_files(fns,quiet=False,profile=False,runtime=False):
         continue
       except Exception as e:
         print "{} {}: {} engine failed to process file with `{}'".format(fail, short_fn, engine, e)
+        exception_happened = True
         continue
     if runtime:
-      if not quiet:
+      if not quiet and not exception_happened:
         print "{} {}: {} ran without exceptions".format(ok_green, short_fn, engine)
       continue
 
