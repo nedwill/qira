@@ -377,7 +377,7 @@ class Trace:
     self.strace = ret
 
   def analysis_thread(self):
-    #print "*** started analysis_thread"
+    print "*** started analysis_thread"
     while 1:
       time.sleep(0.2)
       # so this is done poorly, analysis can be incremental
@@ -389,6 +389,19 @@ class Trace:
         self.flow = qira_analysis.get_instruction_flow(self, self.program, minclnum, maxclnum)
         self.dmap = qira_analysis.get_hacked_depth_map(self.flow, self.program)
         qira_analysis.analyse_calls(self.program, self.flow)
+
+        import concrete_execution
+        errors, warnings = concrete_execution.validate_bil(self.program, self.flow)
+        def print_issue(i):
+          print str(i.__class__) + ":", i.message
+          print "\tClnum: ", i.clnum
+          print "\tInstruction: ", i.insn
+          print "\tBIL: ", i.insn.insn.bil
+          print "-"*70
+        if len(errors) == 0:
+          print "No BIL errors!"
+        for error in errors:
+          print_issue(error)
 
         # hacky pin offset problem fix
         hpo = len(self.dmap)-(maxclnum-minclnum)
@@ -402,6 +415,7 @@ class Trace:
         self.needs_update = True
 
         #print "analysis is ready"
+
 
   def load_base_memory(self):
     def get_forkbase_from_log(n):
