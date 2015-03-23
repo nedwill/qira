@@ -49,6 +49,7 @@ if __name__ == '__main__':
 
   if args.stop:
     process_files_stop(file_list)
+    print "{} Finished checking files.".format(star_blue)
   else:
     d, failed = process_files(file_list, validate_bil)
 

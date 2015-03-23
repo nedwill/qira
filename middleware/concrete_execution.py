@@ -269,6 +269,9 @@ def validate_bil(program, flow):
   state = new_state_for_clnum(0)
 
   for (addr,data,clnum,ins) in flow:
+    if len(program.static.memory(addr, 16)) == 0:
+      print "Warning: QIRA tried to access unmapped memory: 0x{:x} @ {}.".format(addr, clnum)
+      continue
     instr = program.static[addr]['instruction']
     if not isinstance(instr, BapInsn):
       errors.append(Error(clnum, instr, "Could not make BAP instruction for %s" % str(instr)))
