@@ -96,17 +96,18 @@ class ConcreteExecutor(adt.Visitor):
     return ConcreteBitVector(op.size, op.value)
 
   def visit_Let(self, op):
-    tmp = state.get(op.var.name, None)
-    state[var.name] = self.run(op.value)
+    variables = self.state.variables
+    tmp = variables.get(op.var.name, None)
+    variables[op.var.name] = self.run(op.value)
     result = self.run(op.expr)
     if tmp is None:
-      state.remove(op.var.name)
+      variables.pop(op.var.name, None)
     else:
-      state[var.name] = tmp
+      variables[op.var.name] = tmp
     return result
 
-  def visit_Unkown(self, op):
-    return
+  def visit_Unknown(self, op):
+    return ConcreteBitVector(1,0)
 
   def visit_Ite(self, op):
     return self.run(op.true) if self.run(op.cond) else self.run(op.false)
@@ -235,15 +236,30 @@ def validate_bil(program, flow):
   libraries = [(m[3],m[1]) for m in trace.mapped]
   registers = program.tregs[0]
   regsize = 8 * program.tregs[1]
+  arch = program.tregs[-1]
+
+  if arch == "arm":
+    cpu_flags = ["ZF", "CF", "NF", "VF"]
+    PC = "PC"
+  elif arch == "i386":
+    cpu_flags = ["CF", "PF", "AF", "ZF", "SF", "OF", "DF"]
+    PC = "EIP"
+  elif arch == "x86-64":
+    cpu_flags = ["CF", "PF", "AF", "ZF", "SF", "OF", "DF"]
+    PC = "RIP"
+  else:
+    print "Architecture not supported"
+    return [],[]
+
 
   errors = []
   warnings = []
 
   def new_state_for_clnum(clnum, include_flags=True):
-    flags = ["ZF", "CF", "NF", "VF"] if include_flags else []
+    flags = cpu_flags if include_flags else []
+    flagvalues = [0 for f in flags]
     varnames = registers + flags
     initial_regs = trace.db.fetch_registers(clnum)
-    flagvalues = [0, 0, 0, 0] if include_flags else []
     varvals = initial_regs + flagvalues
     varvals = map(lambda x: ConcreteBitVector(regsize, x), varvals)
     initial_vars = dict(zip(varnames, varvals))
@@ -265,8 +281,10 @@ def validate_bil(program, flow):
       else:
 
         # this is bad.. fix this
-        state["PC"] += 8 #Qira PC is wrong
-        executor = ConcreteExecutor(state, "PC")
+        if arch == "arm":
+          state[PC] += 8 #Qira PC is wrong
+
+        executor = ConcreteExecutor(state, PC)
 
         try:
           adt.visit(executor, bil_instrs)
@@ -276,11 +294,14 @@ def validate_bil(program, flow):
           errors.append(Error(clnum, instr, "Used invalid address %x." % e.args[0]))
 
         if not executor.jumped:
-          state["PC"] -= 4
+          if arch == "arm":
+            state[PC] -= 4
+          elif arch == "i386" or arch == "x86-64":
+            state[PC] += instr.size()
 
         validate = True
-        PC = state["PC"]
-        if PC > 0xf0000000 or any([PC >= base and PC <= base+size for (base,size) in libraries]):
+        PC_val = state[PC]
+        if PC_val > 0xf0000000 or any([PC_val >= base and PC_val <= base+size for (base,size) in libraries]):
           # we are jumping into a library that we can't trace.. reset the state and continue
           warnings.append(Warning(clnum, instr, "Jumping into library. Cannot trace this"))
           state = new_state_for_clnum(clnum)
