@@ -10,11 +10,11 @@ def validate_bil(program):
 def print_issue(i):
   print str(i.__class__) + ":", issue.message
   print "\tClnum: ", issue.clnum
-  print "\tInstrction: ", issue.insn
+  print "\tInstruction: ", issue.insn
   print "-"*70
 
 if __name__ == '__main__':
-  parser = argparse.ArgumentParser(description="Minimize test corpus to cover all instructions.")
+  parser = argparse.ArgumentParser(description="Check BIL over a corpus of input files.")
   parser.add_argument("tests", help="input file or folder (checked recursively)")
   args = parser.parse_args()
   file_list = get_file_list(args.tests)
