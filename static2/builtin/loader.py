@@ -35,7 +35,7 @@ def load_binary(static):
       if segment['p_type'] == 'PT_LOAD':
         memsize = segment['p_memsz']
         static.add_memory_chunk(addr, segment.data().ljust(memsize, "\x00"))
-  except (ELFParseError, ELFError, OverflowError): #stop processing if ELF is invalid
+  except (ELFParseError, ELFError, OverflowError, IOError): #stop processing if ELF is invalid
     print "Error: {} is an invalid ELF file.".format(static.path)
     return
 
@@ -44,11 +44,10 @@ def load_binary(static):
       print "** found section", section.name, type(section)
 
     if isinstance(section, RelocationSection):
-      symtable = elf.get_section(section['sh_link'])
-      if symtable.is_null():
-        continue
-
       try:
+        symtable = elf.get_section(section['sh_link'])
+        if symtable.is_null():
+          continue
         for rel in section.iter_relocations():
           if isinstance(section, SymbolTableSection):
             symbol = symtable.get_symbol(rel['r_info_sym'])
@@ -57,37 +56,37 @@ def load_binary(static):
             if rel['r_offset'] != 0 and symbol.name != "":
               static[rel['r_offset']]['name'] = "__"+symbol.name
               ncount += 1
-      except (ELFParseError, ELFError): #stop processing if ELF is invalid
+
+        # hacks for PLT
+        # TODO: this is fucking terrible
+        if section.name == '.rel.plt' or section.name == '.rela.plt':
+          # first symbol is blank
+          plt_symbols = []
+          for rel in section.iter_relocations():
+            symbol = symtable.get_symbol(rel['r_info_sym'])
+            plt_symbols.append(symbol.name)
+
+          # does this change?
+          PLT_ENTRY_SIZE = 0x10
+
+          for section in elf.iter_sections():
+            if section.name == ".plt":
+              for name, addr in zip(plt_symbols,
+                       range(section['sh_addr'] + PLT_ENTRY_SIZE,
+                             section['sh_addr'] + PLT_ENTRY_SIZE + PLT_ENTRY_SIZE*len(plt_symbols),
+                             PLT_ENTRY_SIZE)):
+                static[addr]['name'] = name
+              print plt_symbols, section['sh_addr']
+      except (ELFParseError, ELFError, IOError): #stop processing if ELF is invalid
         print "Error: {} is an invalid ELF file.".format(static.path)
         return
-
-      # hacks for PLT
-      # TODO: this is fucking terrible
-      if section.name == '.rel.plt' or section.name == '.rela.plt':
-        # first symbol is blank
-        plt_symbols = []
-        for rel in section.iter_relocations():
-          symbol = symtable.get_symbol(rel['r_info_sym'])
-          plt_symbols.append(symbol.name)
-
-        # does this change?
-        PLT_ENTRY_SIZE = 0x10
-
-        for section in elf.iter_sections():
-          if section.name == ".plt":
-            for name, addr in zip(plt_symbols,
-                     range(section['sh_addr'] + PLT_ENTRY_SIZE,
-                           section['sh_addr'] + PLT_ENTRY_SIZE + PLT_ENTRY_SIZE*len(plt_symbols),
-                           PLT_ENTRY_SIZE)):
-              static[addr]['name'] = name
-            print plt_symbols, section['sh_addr']
 
 
     if isinstance(section, SymbolTableSection):
       try:
         for nsym, symbol in enumerate(section.iter_symbols()):
           #print symbol['st_info'], symbol.name, hex(symbol['st_value'])
-          if symbol['st_value'] != 0 and symbol.name != "" and symbol['st_info']['type'] == "STT_FUNC":
+          if symbol['st_value'] != 0 and symbol.name != "" and symbol.name is not None and symbol['st_info']['type'] == "STT_FUNC":
             if static.debug >= 1:
               print "Symbol",hex(symbol['st_value']), symbol.name
             static[symbol['st_value']]['name'] = symbol.name
@@ -95,7 +94,7 @@ def load_binary(static):
       #note here that pyelftools has a bug in iter_symbols for an invalid ELF
       #where it calls get_string on a section that doesn't contain that method
       #I can upstream the bug but pyelftools looks kinda dead.
-      except (ELFParseError, ELFError, AttributeError): #stop processing if ELF is invalid
+      except (ELFParseError, ELFError, AttributeError, IOError): #stop processing if ELF is invalid
         print "Error: {} is an invalid ELF file.".format(static.path)
         return
 
