@@ -11,7 +11,11 @@ def validate_bil(program):
 def print_issue(i):
   print str(i.__class__) + ":", i.message
   print "\tClnum: ", i.clnum
-  print "\tBIL/Ins: ", str(i.insn)
+  print "\tIns: ", str(i.insn)
+  try:
+    print "\tBIL: ", i.insn.insn.bil
+  except:
+    pass
   print "-"*70
 
 def validate_process(fn):
