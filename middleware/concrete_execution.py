@@ -1,40 +1,37 @@
 #!/usr/bin/env python2.7
 
 from bap import bil
+from bap import adt
 from functools import partial
 from model import BapInsn
+from bitvector import ConcreteBitVector
 import collections
 
-class Memory:
+class Memory(dict):
   def __init__(self, fetch_mem, initial=None):
     self.fetch_mem = fetch_mem
-    self.memory = {} if initial is None else initial
+    if initial is not None:
+      self.update(initial)
 
   def get_mem(self, addr, size, little_endian=True):
+    addr = int(addr)
     result = "".join([self[address] for address in range(addr, addr+size)])
     if little_endian: result = result[::-1]
     return result
 
   def set_mem(self, addr, size, val, little_endian=True):
     for i in range(size):
+      addr = int(addr)
       shift = i if little_endian else size-i-1
       byteval = (val >> shift*8) & 0xff
       self[addr+i] = chr(byteval)
 
-  def items(self):
-    return self.memory.items()
-
-  def __setitem__(self, addr, val):
-    self.memory[addr] = val
-
   def __getitem__(self, addr):
-    if addr not in self.memory:
-      self.memory[addr] = self.fetch_mem(addr, 1)
+    if addr not in self:
+      self[addr] = self.fetch_mem(addr, 1)
 
-    return self.memory[addr]
+    return self.get(addr)
 
-  def __str__(self):
-    return "".join(["%x : %x\n" % (addr, ord(val)) for addr, val in self.memory.items()])
 
 class State:
   def __init__(self, variables, get_mem, initial_mem=None):
@@ -50,171 +47,171 @@ class State:
   def __getitem__(self, name):
     if isinstance(name, str):
       return self.variables[name]
-    else:
-      return self.memory[name]
+    elif isinstance(name, int):
+      return self.memory(name)
+    elif isinstance(name, ConcreteBitVector):
+      return self.memory(int(name))
 
   def __setitem__(self, name, val):
     if isinstance(name, str):
       self.variables[name] = val
     else:
-      self.memory[name] = val
+      self.memory[int(name)] = val
 
   def __str__(self):
     return str(self.variables)
 
-def to_val(n, size=32):
-  if n < 0:
-    n = (1 << size) + n
-  return int(n & ((1 << size) - 1))
+class VariableException(Exception):
+  pass
 
-def eval_bil_expr(expr, state):
-  """
-  Warning: Can modify state
-  """
+class MemoryException(Exception):
+  pass
 
-  def eval_expr(expr):
-    """
-    Helper function to prevent passing state recursively every time
-    """
-    if isinstance(expr, bil.Load):
-      addr = eval_expr(expr.idx)
-      size = expr.size
-      mem = state.get_mem(addr, size / 8, isinstance(expr.endian, bil.LittleEndian))
-      return long(mem.encode('hex'), 16)
-    elif isinstance(expr, bil.Store):
-      addr = eval_expr(expr.idx)
-      val = eval_expr(expr.value)
-      size = expr.size
-      state.set_mem(addr, size / 8, val, isinstance(expr.endian, bil.LittleEndian))
-    elif isinstance(expr, bil.Var):
-      return state[expr.name]
-    elif isinstance(expr, bil.Int):
-      return to_val(expr.value, size=expr.size)
-    elif isinstance(expr, bil.Let):
-      tmp = state.get(expr.var.name, None)
-      state[expr.var.name] = eval_expr(expr.value)
-      result = eval_expr(expr.expr)
-      if tmp is None:
-        state.remove(expr.var.name)
-      else:
-        state[expr.var.name] = tmp
-      return result
-    elif isinstance(expr, bil.PLUS):
-      return to_val(eval_expr(expr.lhs) + eval_expr(expr.rhs))
-    elif isinstance(expr, bil.MINUS):
-      return to_val(eval_expr(expr.lhs) - eval_expr(expr.rhs))
-    elif isinstance(expr, bil.TIMES):
-      return to_val(eval_expr(expr.lhs) * eval_expr(expr.rhs))
-    elif isinstance(expr, bil.DIVIDE):
-      return to_val(eval_expr(expr.lhs) / eval_expr(expr.rhs))
-    elif isinstance(expr, bil.SDIVIDE): # TODO
-      return to_val(eval_expr(expr.lhs) / eval_expr(expr.rhs))
-    elif isinstance(expr, bil.MOD):
-      return to_val(eval_expr(expr.lhs) % eval_expr(expr.rhs))
-    elif isinstance(expr, bil.SMOD): # TODO
-      return to_val(eval_expr(expr.lhs) + eval_expr(expr.rhs))
-    elif isinstance(expr, bil.LSHIFT):
-      return to_val(eval_expr(expr.lhs) << eval_expr(expr.rhs))
-    elif isinstance(expr, bil.RSHIFT):
-      # logical right shift
-      # TODO: refactor
-      shift = eval_expr(expr.rhs)
-      var = eval_expr(expr.lhs)
-      if shift >= 1:
-        var >>= 1
-        var = var & 0x7fffffff
-        var >>= (shift - 1)
-      return to_val(var)
-    elif isinstance(expr, bil.ARSHIFT):
-      return to_val(eval_expr(expr.lhs) >> eval_expr(expr.rhs))
-    elif isinstance(expr, bil.AND):
-      return to_val(eval_expr(expr.lhs) & eval_expr(expr.rhs))
-    elif isinstance(expr, bil.OR):
-      return to_val(eval_expr(expr.lhs) | eval_expr(expr.rhs))
-    elif isinstance(expr, bil.XOR):
-      return to_val(eval_expr(expr.lhs) ^ eval_expr(expr.rhs))
-    elif isinstance(expr, bil.EQ):
-      return 1 if eval_expr(expr.lhs) == eval_expr(expr.rhs) else 0
-    elif isinstance(expr, bil.NEQ):
-      return 1 if eval_expr(expr.lhs) != eval_expr(expr.rhs) else 0
-    elif isinstance(expr, bil.LT):
-      return 1 if eval_expr(expr.lhs) < eval_expr(expr.rhs) else 0
-    elif isinstance(expr, bil.LE):
-      return 1 if eval_expr(expr.lhs) <= eval_expr(expr.rhs) else 0
-    elif isinstance(expr, bil.SLT): # TODO
-      return 1 if eval_expr(expr.lhs) < eval_expr(expr.rhs) else 0
-    elif isinstance(expr, bil.SLE): # TODO
-      return 1 if eval_expr(expr.lhs) <= eval_expr(expr.rhs) else 0
-    elif isinstance(expr, bil.NEG):
-      return to_val(-eval_expr(expr.arg))
-    elif isinstance(expr, bil.NOT):
-      return to_val(~eval_expr(expr.arg))
-    elif isinstance(expr, bil.HIGH):
-      mask = (1 << expr.size) - 1
-      shift = 32 - expr.size
-      return (eval_expr(expr.expr) >> shift) & mask
-    elif isinstance(expr, bil.LOW):
-      mask = (1 << expr.size) - 1
-      return eval_expr(expr.expr) & mask
-    elif isinstance(expr, bil.Cast):
-      return eval_expr(expr.expr)
-    elif isinstance(expr, bil.Unknown):
-      pass
-    elif isinstance(expr, bil.Ite):
-      if eval_expr(expr.cond):
-        return eval_expr(expr.true)
-      else:
-        return eval_expr(expr.false)
-    elif isinstance(expr, bil.Extract):
-      val = eval_expr(expr.expr)
-      mask = (1 << (expr.high_bit - expr.low_bit)) - 1
-      shift = expr.low_bit
-      return to_val((val >> shift) & mask)
-    elif isinstance(expr, bil.Concat):
-      lhs = eval_expr(expr.lhs)
-      rhs = eval_expr(expr.rhs)
-      return to_val((lhs << 16) | rhs)
+class ConcreteExecutor(adt.Visitor):
+  def __init__(self, state, pc):
+    self.state = state
+    self.pc = pc
+    self.jumped = False
 
-  return eval_expr(expr)
+  def visit_Load(self, op):
+    addr = self.run(op.idx)
+    mem = self.state.get_mem(addr, op.size / 8, isinstance(op.endian, bil.LittleEndian))
+    if len(mem) == 0:
+      raise MemoryException(addr)
+    return ConcreteBitVector(op.size, int(mem.encode('hex'), 16))
 
-def run_bil_instruction(st, state):
-  """
-  Modifies the state based on the statement.
-  Returns True if a jump was ran
-  """
+  def visit_Store(self, op):
+    addr = self.run(op.idx)
+    val = self.run(op.value)
+    self.state.set_mem(addr, op.size / 8, val, isinstance(op.endian, bil.LittleEndian))
+    return op.mem
 
-  hit_jump = False
-  if isinstance(st, bil.Move):
-    state[st.var.name] = eval_bil_expr(st.expr, state)
-  elif isinstance(st, bil.Jmp):
-    newpc = eval_bil_expr(st.arg, state)
-    state["PC"] = newpc
-    hit_jump = True
-  elif isinstance(st, bil.If):
-    if eval_bil_expr(st.cond, state):
-      hit_jump = execute_bil_statements(st.true, state)
+  def visit_Var(self, op):
+    try:
+      return self.state[op.name]
+    except KeyError as e:
+      raise VariableException(op.name)
+
+  def visit_Int(self, op):
+    return ConcreteBitVector(op.size, op.value)
+
+  def visit_Let(self, op):
+    variables = self.state.variables
+    tmp = variables.get(op.var.name, None)
+    variables[op.var.name] = self.run(op.value)
+    result = self.run(op.expr)
+    if tmp is None:
+      variables.pop(op.var.name, None)
     else:
-      hit_jump = execute_bil_statements(st.false, state)
-  elif isinstance(st, bil.While):
-    while (eval_bil_expr(st.cond, state)):
-      hit_jump = hit_jump or execute_bil_statements(st.stmts, state)
-  return hit_jump
+      variables[op.var.name] = tmp
+    return result
 
-def execute_bil_statements(statements, state):
-  """
-  Modifies the state based on the statements.
-  Returns True if a jump was ran
-  """
+  def visit_Unknown(self, op):
+    return ConcreteBitVector(1,0)
 
-  hit_jump = False
+  def visit_Ite(self, op):
+    return self.run(op.true) if self.run(op.cond) else self.run(op.false)
 
-  if not isinstance(statements, collections.Iterable):
-    statements = [statements]
+  def visit_Extract(self, op):
+    return self.run(op.expr).get_bits(op.low_bit, op.high_bit)
 
-  for st in statements:
-    hit_jump = hit_jump or run_bil_instruction(st, state)
+  def visit_Concat(self, op):
+    return self.run(op.lhs).concat(self.run(op.rhs))
 
-  return hit_jump
+  def visit_Move(self, op):
+    if isinstance(op.var.type, bil.Imm):
+      self.state[op.var.name] = ConcreteBitVector(op.var.type.size, int(self.run(op.expr)))
+    else:
+      self.run(op.expr) # no need to store Mems
+
+  def visit_Jmp(self, op):
+    self.jumped = True
+    self.state[self.pc] = self.run(op.arg)
+
+  def visit_While(self, op):
+    while self.run(op.cond) == 1:
+      adt.visit(self, op.stmts)
+
+  def visit_If(self, op):
+    if self.run(op.cond) == 1:
+      adt.visit(self, op.true)
+    else:
+      adt.visit(self, op.false)
+
+  def visit_PLUS(self, op):
+    return self.run(op.lhs) + self.run(op.rhs)
+
+  def visit_MINUS(self, op):
+    return self.run(op.lhs) - self.run(op.rhs)
+
+  def visit_TIMES(self, op):
+    return self.run(op.lhs) * self.run(op.rhs)
+
+  def visit_DIVIDE(self, op):
+    return self.run(op.lhs) / self.run(op.rhs)
+
+  def visit_SDIVIDE(self, op):
+    return self.run(op.lhs) / self.run(op.rhs)
+
+  def visit_MOD(self, op):
+    return self.run(op.lhs) % self.run(op.rhs)
+
+  def visit_SMOD(self, op):
+    return self.run(op.lhs) % self.run(op.rhs)
+
+  def visit_LSHIFT(self, op):
+    return self.run(op.lhs) << self.run(op.rhs)
+
+  def visit_RSHIFT(self, op):
+    return self.run(op.lhs) >> self.run(op.rhs)
+
+  def visit_ARSHIFT(self, op):
+    return self.run(op.lhs).arshift(self.run(op.rhs))
+
+  def visit_AND(self, op):
+    return self.run(op.lhs) & self.run(op.rhs)
+
+  def visit_OR(self, op):
+    return self.run(op.lhs) | self.run(op.rhs)
+
+  def visit_XOR(self, op):
+    return self.run(op.lhs) ^ self.run(op.rhs)
+
+  def visit_EQ(self, op):
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) == self.run(op.rhs) else 0)
+
+  def visit_NEQ(self, op):
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) != self.run(op.rhs) else 0)
+
+  def visit_LT(self, op):
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) < self.run(op.rhs) else 0)
+
+  def visit_LE(self, op):
+    return ConcreteBitVector(1, 1 if self.run(op.lhs) <= self.run(op.rhs) else 0)
+
+  def visit_SLT(self, op):
+    return ConcreteBitVector(1, 1 if self.run(op.lhs).slt(self.run(op.rhs)) else 0)
+
+  def visit_SLE(self, op):
+    return ConcreteBitVector(1, 1 if self.run(op.lhs).sle(self.run(op.rhs)) else 0)
+
+  def visit_NEG(self, op):
+    return -self.run(op.arg)
+
+  def visit_NOT(self, op):
+    return ~self.run(op.arg)
+
+  def visit_UNSIGNED(self, op):
+    return ConcreteBitVector(op.size, int(self.run(op.expr)))
+
+  def visit_SIGNED(self, op):
+    return ConcreteBitVector(op.size, int(self.run(op.expr)))
+
+  def visit_HIGH(self, op):
+    return self.run(op.expr).get_high_bits(op.size)
+
+  def visit_LOW(self, op):
+    return self.run(op.expr).get_low_bits(op.size)
 
 class Issue:
   def __init__(self, clnum, insn, message):
@@ -232,18 +229,40 @@ def validate_bil(program, flow):
   r"""
   Runs the concrete executor, validating the the results are consistent with the trace.
   Returns a tuple of (Errors, Warnings)
+  Currently only supports ARM
   """
 
   trace = program.traces[0]
   libraries = [(m[3],m[1]) for m in trace.mapped]
   registers = program.tregs[0]
+  regsize = 8 * program.tregs[1]
+  arch = program.tregs[-1]
+
+  if arch == "arm":
+    cpu_flags = ["ZF", "CF", "NF", "VF"]
+    PC = "PC"
+  elif arch == "i386":
+    cpu_flags = ["CF", "PF", "AF", "ZF", "SF", "OF", "DF"]
+    PC = "EIP"
+  elif arch == "x86-64":
+    cpu_flags = ["CF", "PF", "AF", "ZF", "SF", "OF", "DF"]
+    PC = "RIP"
+  else:
+    print "Architecture not supported"
+    return [],[]
+
 
   errors = []
   warnings = []
 
-  def new_state_for_clnum(clnum):
+  def new_state_for_clnum(clnum, include_flags=True):
+    flags = cpu_flags if include_flags else []
+    flagvalues = [0 for f in flags]
+    varnames = registers + flags
     initial_regs = trace.db.fetch_registers(clnum)
-    initial_vars = dict(zip(registers, initial_regs))
+    varvals = initial_regs + flagvalues
+    varvals = map(lambda x: ConcreteBitVector(regsize, x), varvals)
+    initial_vars = dict(zip(varnames, varvals))
     initial_mem_get = partial(trace.fetch_raw_memory, clnum)
     return State(initial_vars, initial_mem_get)
 
@@ -262,26 +281,34 @@ def validate_bil(program, flow):
       else:
 
         # this is bad.. fix this
-        oldpc = state["PC"]
-        state["PC"] += 8 #Qira PC is wrong
-        try:
-          jumped = execute_bil_statements(bil_instrs, state)
-        except KeyError as e:
-          errors.append(Error(clnum, instr, "No BIL variable %s!" % str(e)))
+        if arch == "arm":
+          state[PC] += 8 #Qira PC is wrong
 
-        if not jumped:
-          state["PC"] -= 4
+        executor = ConcreteExecutor(state, PC)
+
+        try:
+          adt.visit(executor, bil_instrs)
+        except VariableException as e:
+          errors.append(Error(clnum, instr, "No BIL variable %s!" % str(e.args[0])))
+        except MemoryException as e:
+          errors.append(Error(clnum, instr, "Used invalid address %x." % e.args[0]))
+
+        if not executor.jumped:
+          if arch == "arm":
+            state[PC] -= 4
+          elif arch == "i386" or arch == "x86-64":
+            state[PC] += instr.size()
 
         validate = True
-        PC = state["PC"]
-        if PC > 0xf0000000 or any([PC >= base and PC <= base+size for (base,size) in libraries]):
+        PC_val = state[PC]
+        if PC_val > 0xf0000000 or any([PC_val >= base and PC_val <= base+size for (base,size) in libraries]):
           # we are jumping into a library that we can't trace.. reset the state and continue
           warnings.append(Warning(clnum, instr, "Jumping into library. Cannot trace this"))
           state = new_state_for_clnum(clnum)
           continue
 
         error = False
-        correct_regs = dict(zip(registers, trace.db.fetch_registers(clnum)))
+        correct_regs = new_state_for_clnum(clnum, include_flags=False).variables
 
         for reg, correct in correct_regs.iteritems():
           if state[reg] != correct:
@@ -291,7 +318,11 @@ def validate_bil(program, flow):
 
         for (addr, val) in state.memory.items():
           realval = trace.fetch_raw_memory(clnum, addr, 1)
-          if val != realval:
+          if len(realval) == 0 or len(val) == 0:
+            errors.append(Error(clnum, instr, "Used invalid address %x." % addr))
+            # this is unfixable, reset state
+            state = new_state_for_clnum(clnum)
+          elif val != realval:
             error = True
             errors.append(Error(clnum, instr, "Value at address %x is wrong! (%x != %x)." % (addr, ord(val), ord(realval))))
             state[addr] = realval
