@@ -1,7 +1,11 @@
 from trace import *
 
+#min set implementation where we minimize unique instructions
+#works best with static off in qira_config.py
+
 #based on get_instruction_flow from qira_analysis
 #arm flag tells us whether to disasm or not, autodetect from ELF?
+@processify
 def get_unique_instructions(program, arm=True):
   program, trace = process_program(program)
   start = time.time()
@@ -48,7 +52,7 @@ def get_min_set(folder_name):
         print "No instructions executed."
         sys.exit()
     d_orig = d
-    print d_orig
+    #print d_orig
     #weird unpacking here. can probably do better
     all_elements = set.union(*[v for (_,v) in d_orig.iteritems()])
     #use this to check that everything is hit at the end

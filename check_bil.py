@@ -21,7 +21,8 @@ if __name__ == '__main__':
 
   d, failed = process_files(file_list, validate_bil)
 
-  print "{} Failed to process:".format(fail)," ".join(failed)
+  if len(failed) > 0:
+    print "{} Failed to process:".format(fail)," ".join(failed)
 
   for fn,(errors, warnings) in d.iteritems():
     print "{} Issues found in {}:".format(warn, fn)
