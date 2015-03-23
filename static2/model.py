@@ -84,6 +84,13 @@ class BapInsn(object):
       self._dests = dests
 
   def __str__(self):
+    # fix relative jumps to absolute address
+    for d in self._dests:
+      if d[1] is not DESTTYPE.implicit:
+        mnemonic = self.insn.asm.split("\t")[:-1] #ignore last operand
+        mnemonic.append(hex(d[0]).strip("L")) #add destination to end
+        newasm = "\t".join(mnemonic)
+        return newasm
     return self.insn.asm
 
   def is_jump(self):
@@ -390,7 +397,7 @@ class Tags:
       if tag == "instruction":
         dat = self.static.memory(self.address, 0x10)
         # arch should probably come from the address with fallthrough
-        self.backing['instruction'] = Instruction(dat, self.address, self.static['arch'])
+        self.backing['instruction'] = Instruction(dat, self.address, self.static[self.address]['arch'])
         self.backing['len'] = self.backing['instruction'].size()
         self.backing['type'] = 'instruction'
         return self.backing[tag]

@@ -53,12 +53,12 @@ class Program:
     print "*** program is",self.program,"with hash",self.proghash
 
     # this is always initted, as it's the tag repo
-    self.static = static2.Static(self.program) 
+    self.static = static2.Static(self.program)
 
     # init static
     if qira_config.WITH_STATIC:
-      self.static.process()
-    
+      threading.Thread(target=self.static.process).start()
+
     # no traces yet
     self.traces = {}
     self.runnable = False
@@ -231,7 +231,7 @@ class Program:
     # delete the logs
     shutil.rmtree(qira_config.TRACE_FILE_BASE)
     os.mkdir(qira_config.TRACE_FILE_BASE)
-  
+
   def get_maxclnum(self):
     ret = {}
     for t in self.traces:
@@ -271,7 +271,7 @@ class Program:
       eargs = [self.qirabinary]+self.defaultargs+args+[self.program]+self.args
     #print "***",' '.join(eargs)
     os.execvp(eargs[0], eargs)
-  
+
 
 class Trace:
   def __init__(self, fn, forknum, program, r1, r2, r3, run_analysis=True):
@@ -297,7 +297,7 @@ class Trace:
 
   def fetch_raw_memory(self, clnum, address, ln):
     return ''.join(map(chr, self.fetch_memory(clnum, address, ln).values()))
-    
+
   # proxy the db call and fill in base memory
   def fetch_memory(self, clnum, address, ln):
     mem = self.db.fetch_memory(clnum, address, ln)
@@ -356,6 +356,11 @@ class Trace:
               except:
                 f = open(files[fil])
               alldat = f.read()
+
+              if fxn == "mmap2":
+                off = 4096*off # offset argument is in terms of pages for mmap2()
+                # is it safe to assume 4096 byte pages?
+
               st = "*** mapping %s %s sz:0x%x off:0x%x @ 0x%X" % (sha1(alldat).hexdigest(), files[fil], sz, off, return_code)
               print st,
               dat = alldat[off:off+sz]
@@ -380,6 +385,7 @@ class Trace:
         self.analysisready = False
         minclnum = self.db.get_minclnum()
         maxclnum = self.db.get_maxclnum()
+        self.program.read_asm_file()
         self.flow = qira_analysis.get_instruction_flow(self, self.program, minclnum, maxclnum)
         self.dmap = qira_analysis.get_hacked_depth_map(self.flow, self.program)
         qira_analysis.analyse_calls(self.program, self.flow)
@@ -394,6 +400,7 @@ class Trace:
         self.minclnum = minclnum
         self.maxclnum = maxclnum
         self.needs_update = True
+
         #print "analysis is ready"
 
   def load_base_memory(self):
@@ -405,7 +412,7 @@ class Trace:
         return get_forkbase_from_log(ret)
 
     try:
-      forkbase = get_forkbase_from_log(self.forknum) 
+      forkbase = get_forkbase_from_log(self.forknum)
       print "*** using base %d for %d" % (forkbase, self.forknum)
       f = open(qira_config.TRACE_FILE_BASE+str(forkbase)+"_base")
     except Exception, e:
