@@ -396,7 +396,10 @@ class Trace:
           print str(i.__class__) + ":", i.message
           print "\tClnum: ", i.clnum
           print "\tInstruction: ", i.insn
-          print "\tBIL: ", i.insn.insn.bil
+          try:
+            print "\tBIL: ", i.insn.insn.bil
+          except:
+            pass
           print "-"*70
         if len(errors) == 0:
           print "No BIL errors!"
