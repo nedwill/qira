@@ -65,5 +65,5 @@ if __name__ == '__main__':
   if args.stop:
     process_files_stop(file_list)
   else:
-  	process_all_filse(file_list)
+  	process_all_files(file_list)
   print "{} Finished checking files.".format(star_blue)
