@@ -44,6 +44,17 @@ def process_files_stop(file_list):
       print traceback.format_exc()
       exit()
 
+def process_all_files(file_list):
+  d, failed = process_files(file_list, validate_bil)
+  if len(failed) > 0:
+    print "{} Failed to process:".format(fail)," ".join(failed)
+
+  for fn,(errors, warnings) in d.iteritems():
+    if len(errors) > 0:
+      print "{} Issues found in {}:".format(warn, fn)
+      for issue in errors:#+warnings:
+        print_issue(issue)
+
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description="Check BIL over a corpus of input files.")
   parser.add_argument("tests", help="input file or folder (checked recursively)")
@@ -53,15 +64,6 @@ if __name__ == '__main__':
 
   if args.stop:
     process_files_stop(file_list)
-    print "{} Finished checking files.".format(star_blue)
   else:
-    d, failed = process_files(file_list, validate_bil)
-
-    if len(failed) > 0:
-      print "{} Failed to process:".format(fail)," ".join(failed)
-
-    for fn,(errors, warnings) in d.iteritems():
-      if len(errors) > 0:
-        print "{} Issues found in {}:".format(warn, fn)
-        for issue in errors:#+warnings:
-          print_issue(issue)
+  	process_all_filse(file_list)
+  print "{} Finished checking files.".format(star_blue)
