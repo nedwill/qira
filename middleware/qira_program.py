@@ -275,7 +275,7 @@ class Program:
 
 
 class Trace:
-  def __init__(self, fn, forknum, program, r1, r2, r3, run_analysis=True):
+  def __init__(self, fn, forknum, program, r1, r2, r3, run_analysis=False):
     self.forknum = forknum
     self.program = program
     self.db = qiradb.Trace(fn, forknum, r1, r2, r3)
@@ -391,6 +391,7 @@ class Trace:
         self.dmap = qira_analysis.get_hacked_depth_map(self.flow, self.program)
         qira_analysis.analyse_calls(self.program, self.flow)
 
+        sys.path.append(qira_config.BASEDIR+"/tracers/concrete_executor")
         import concrete_execution
         errors, warnings = concrete_execution.validate_bil(self.program, self.flow)
         def print_issue(i):
