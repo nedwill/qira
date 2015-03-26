@@ -1,4 +1,6 @@
 from trace import *
+
+sys.path.append(qira_config.BASEDIR+"/tracers/concrete_executor")
 import concrete_execution
 from concrete_execution import Issue, Warning, Error
 
@@ -30,7 +32,7 @@ def validate_process(fn):
 def process_files_stop(file_list):
   for i,fn in enumerate(file_list):
     short_fn = fn.split("/")[-1]
-    print "{} [{}/{}] done, checking {}...".format(star_blue, i+1, len(file_list), short_fn)
+    print "{} [{}/{}] checking {}...".format(star_blue, i+1, len(file_list), short_fn)
     try:
       errors, warnings = validate_process(fn)
       gc.collect()
@@ -66,4 +68,4 @@ if __name__ == '__main__':
     process_files_stop(file_list)
   else:
   	process_all_files(file_list)
-  print "{} Finished checking files.".format(star_blue)
+  print "{} Finished checking {} files.".format(star_blue, len(file_list))
