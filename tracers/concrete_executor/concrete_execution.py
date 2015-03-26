@@ -269,6 +269,9 @@ def validate_bil(program, flow):
   state = new_state_for_clnum(0)
 
   for (addr,data,clnum,ins) in flow:
+    if len(program.static.memory(addr, 16)) == 0:
+      print "Warning: QIRA tried to access unmapped memory: 0x{:x} @ {}.".format(addr, clnum)
+      continue
     instr = program.static[addr]['instruction']
     if not isinstance(instr, BapInsn):
       errors.append(Error(clnum, instr, "Could not make BAP instruction for %s" % str(instr)))
@@ -313,7 +316,7 @@ def validate_bil(program, flow):
         for reg, correct in correct_regs.iteritems():
           if state[reg] != correct:
             error = True
-            errors.append(Error(clnum, instr, "%s was incorrect! (%x != %x)." % (reg, state[reg] , correct)))
+            errors.append(Error(clnum, instr, "%s was incorrect! (0x%x != 0x%x)." % (reg, state[reg] , correct)))
             state[reg] = correct
 
         for (addr, val) in state.memory.items():
@@ -324,7 +327,7 @@ def validate_bil(program, flow):
             state = new_state_for_clnum(clnum)
           elif val != realval:
             error = True
-            errors.append(Error(clnum, instr, "Value at address %x is wrong! (%x != %x)." % (addr, ord(val), ord(realval))))
+            errors.append(Error(clnum, instr, "Value at address 0x%x is wrong! (0x%x != 0x%x)." % (addr, ord(val), ord(realval))))
             state[addr] = realval
 
   return (errors, warnings)
