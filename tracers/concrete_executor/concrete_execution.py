@@ -269,6 +269,8 @@ def validate_bil(program, flow):
   state = new_state_for_clnum(0)
 
   for (addr,data,clnum,ins) in flow:
+    if clnum % (len(flow) / 10) == 0:
+      print "{}/{} instructions checked.".format(clnum, len(flow))
     if len(program.static.memory(addr, 16)) == 0:
       print "Warning: QIRA tried to access unmapped memory: 0x{:x} @ {}.".format(addr, clnum)
       continue
