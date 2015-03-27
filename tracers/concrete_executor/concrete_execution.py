@@ -273,6 +273,7 @@ def validate_bil(program, flow):
       print "{}/{} instructions checked.".format(clnum, len(flow))
     if len(program.static.memory(addr, 16)) == 0:
       print "Warning: QIRA tried to access unmapped memory: 0x{:x} @ {}.".format(addr, clnum)
+      state = new_state_for_clnum(clnum)
       continue
     instr = program.static[addr]['instruction']
     if not isinstance(instr, BapInsn):
