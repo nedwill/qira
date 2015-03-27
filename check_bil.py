@@ -1,4 +1,5 @@
 from trace import *
+from subprocess import call
 
 sys.path.append(qira_config.BASEDIR+"/tracers/concrete_executor")
 import concrete_execution
@@ -29,7 +30,7 @@ def validate_process(fn):
   return validate_bil(program)
 
 #actually use our own process_files here to bail out when we see an error
-def process_files_stop(file_list):
+def process_files_stop(file_list, dest):
   for i,fn in enumerate(file_list):
     short_fn = fn.split("/")[-1]
     print "{} [{}/{}] checking {}...".format(star_blue, i+1, len(file_list), short_fn)
@@ -45,6 +46,7 @@ def process_files_stop(file_list):
       print "{} processing {} failed".format(fail, short_fn), type(exn).__name__, exn
       print traceback.format_exc()
       exit()
+    call(["mv", fn, dest+"/"+short_fn])
 
 def process_all_files(file_list):
   d, failed = process_files(file_list, validate_bil)
@@ -60,12 +62,14 @@ def process_all_files(file_list):
 if __name__ == '__main__':
   parser = argparse.ArgumentParser(description="Check BIL over a corpus of input files.")
   parser.add_argument("tests", help="input file or folder (checked recursively)")
-  parser.add_argument("--stop", action="store_true", help="stop on the first BIL error")
+  parser.add_argument("--stop",
+    help="stop on the first BIL error, moving good files to supplied destination")
   args = parser.parse_args()
   file_list = get_file_list(args.tests)
 
   if args.stop:
-    process_files_stop(file_list)
+    call(["mkdir", "-p", args.stop])
+    process_files_stop(file_list, args.stop)
   else:
-  	process_all_files(file_list)
+    process_all_files(file_list)
   print "{} Finished checking {} files.".format(star_blue, len(file_list))
