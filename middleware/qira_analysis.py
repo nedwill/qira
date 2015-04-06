@@ -517,11 +517,21 @@ def slice(trace, inclnum):
 
   clnum = inclnum
   st = get_loads(clnum)
-  cls = [clnum]
+  cls = []
+
+  this_arch = trace.program.static['arch']
 
   # so only things before this can affect it
   while clnum > max(0, inclnum-100):
-    st.discard(0x10)  # never follow the stack, X86 HAXX
+    #never follow the stack
+    #discard any changes involving where we mapped the stack register
+    if this_arch == "i386":
+      st.discard(arch.X86REGS[0].index("ESP")*arch.X86REGS[1])
+    elif this_arch == "x86-64":
+      st.discard(arch.X64REGS[0].index("RSP")*arch.X64REGS[1])
+    elif this_arch == "arm":
+      st.discard(arch.ARMREGS[0].index("SP")*arch.ARMREGS[1])
+
     if len(trace.db.fetch_changes_by_clnum(clnum, 100)) > 20:
       break
     overwrite = st.intersection(get_stores(clnum))
@@ -529,13 +539,6 @@ def slice(trace, inclnum):
       st = st.difference(overwrite)
       st = st.union(get_loads(clnum))
       cls.append(clnum)
-      #print clnum, overwrite, st
-    
-    """
-    r = trace.db.fetch_changes_by_clnum(clnum, 100)
-    for e in r:
-      print e
-    """
 
     clnum -= 1
 
