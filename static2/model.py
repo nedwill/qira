@@ -1,5 +1,5 @@
-#from capstone import *
-#import capstone # for some unexported (yet) symbols in Capstone 3.0
+from capstone import *
+import capstone # for some unexported (yet) symbols in Capstone 3.0
 import qira_config
 
 if qira_config.WITH_BAP:
