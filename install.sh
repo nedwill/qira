@@ -16,7 +16,7 @@ if [[ "$unamestr" == 'Linux' ]]; then
     sudo -H $PIP install virtualenv
 
     echo "fetching BAP deps"
-    sudo apt-get install -qq -y software-properties-common libgmp-dev llvm-3.4-dev time clang-3.4 m4
+    sudo apt-get install -qq -y software-properties-common libgmp-dev llvm-3.4-dev time clang-3.4 m4 libcurl4-gnutls-dev
 
     echo "installing ocaml and opam"
     echo 'yes' | sudo add-apt-repository ppa:avsm/ocaml42+opam12
