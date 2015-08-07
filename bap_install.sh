@@ -5,7 +5,7 @@ export OPAMYES=1
 export OPAMJOBS=$(grep processor < /proc/cpuinfo | wc -l)
 opam init --comp=4.02.1
 opam update
-opam pin add bap https://github.com/BinaryAnalysisPlatform/bap.git
+#opam pin add bap https://github.com/BinaryAnalysisPlatform/bap.git
 
 echo "installing BAP"
 #export OPAMVERBOSE=1
@@ -20,5 +20,5 @@ function kill_python {
 trap kill_python EXIT
 opam install depext
 opam depext bap
-llvm_version=3.4 opam install bap
+llvm_version=3.4 opam install bap.0.9.8
 
