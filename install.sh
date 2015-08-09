@@ -49,6 +49,10 @@ virtualenv venv
 source venv/bin/activate
 $PIP install --upgrade -r requirements.txt
 
+# Fix broken capstone installation
+# This is some bug with their setup.py presumably
+cp venv/local/lib/python2.7/site-packages/home/vagrant/qira/venv/lib/python2.7/site-packages/capstone/libcapstone.so venv/local/lib/python2.7/site-packages/capstone/
+
 echo "making symlink"
 sudo ln -sf $(pwd)/qira /usr/local/bin/qira
 
