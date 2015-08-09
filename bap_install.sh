@@ -20,5 +20,5 @@ function kill_python {
 trap kill_python EXIT
 opam install depext
 opam depext bap
-llvm_version=3.4 opam install bap.0.9.8
+llvm_version=3.4 opam install bap
 
